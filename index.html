@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1b130c">
+  <title>Cờ tướng 3D</title>
+  <link rel="stylesheet" href="client/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <div id="hud">
+    <span id="turnDot" class="dot red"></span>
+    <span id="turnText">Lượt: Đỏ</span>
+    <span id="msg"></span>
+  </div>
+
+  <div id="toolbar">
+    <button id="btnNew" type="button">Ván mới</button>
+    <button id="btnUndo" type="button">Đi lại</button>
+    <button id="btnFlip" type="button">Lật bàn</button>
+    <button id="btnSeat" type="button">Góc ngồi</button>
+    <button id="btnTop" type="button">Nhìn từ trên</button>
+    <button id="btnAuto" type="button" aria-pressed="false">Tự lật: tắt</button>
+    <button id="btnSound" type="button" aria-pressed="true">Âm thanh: bật</button>
+    <button id="btnQuality" type="button" aria-pressed="false">Đồ họa: cao</button>
+  </div>
+
+  <div id="banner" hidden>
+    <div id="bannerText"></div>
+    <button id="bannerNew" type="button">Ván mới</button>
+  </div>
+
+  <div id="loading">Đang tải bàn cờ…</div>
+
+  <script>
+    setTimeout(function () {
+      var el = document.getElementById('loading');
+      if (el && !el.hidden) {
+        el.textContent = 'Không tải được thư viện 3D. Hãy kiểm tra kết nối mạng rồi tải lại trang.';
+      }
+    }, 10000);
+  </script>
+  <script type="module" src="client/main.js"></script>
+</body>
+</html>

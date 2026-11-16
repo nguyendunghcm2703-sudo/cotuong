@@ -1,0 +1,10 @@
+{
+  "name": "co-tuong-3d",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"shared/*.test.js\" \"client/*.test.js\"",
+    "start": "python3 -m http.server 8080"
+  }
+}
