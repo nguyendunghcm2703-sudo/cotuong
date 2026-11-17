@@ -204,3 +204,55 @@ test('Phòng bỏ trống quá lâu bị dọn; còn người thì giữ lại',
   assert.equal(env.room.data.seats.r, null);
   assert.ok(a);
 });
+
+// ---------- mật khẩu phòng ----------
+async function connectPw(env, id, extra = {}) {
+  const ws = new FakeWs();
+  env.ctx.acceptWebSocket(ws);
+  await env.room.webSocketMessage(ws, JSON.stringify({ t: 'join', id, want: 'any', ...extra }));
+  return ws;
+}
+
+test('Mật khẩu: người tạo đặt mật khẩu, người vào đúng mật khẩu mới có chỗ', async () => {
+  const env = await makeRoom();
+  const a = await connectPw(env, ID_A, { create: true, pw: 'abcd1', want: 'r' });
+  assert.equal(a.last('state').you, 'r');
+  assert.ok(env.ctx.store.get('room').pw.hash, 'chỉ lưu bản băm');
+  assert.ok(!JSON.stringify(env.ctx.store.get('room')).includes('abcd1'));
+
+  const none = await connectPw(env, ID_B);
+  assert.equal(none.last('error').code, 'need_password');
+  assert.equal(none.of('state').length, 0);
+
+  const wrong = await connectPw(env, ID_B, { pw: 'zzzzz' });
+  assert.equal(wrong.last('error').code, 'bad_password');
+
+  const ok = await connectPw(env, ID_B, { pw: 'abcd1' });
+  assert.equal(ok.last('state').you, 'b');
+
+  // sau khi vào sai, socket chưa vào phòng không đi nước được
+  await send(env.room, wrong, { t: 'move', from: 70, to: 67 });
+  assert.equal(wrong.last('error').code, 'not_joined');
+});
+
+test('Mật khẩu: người đã có chỗ vào lại không cần mật khẩu; khóa tạm sau 5 lần sai', async () => {
+  const env = await makeRoom();
+  await connectPw(env, ID_A, { create: true, pw: 'abcd1', want: 'r' });
+  const again = await connectPw(env, ID_A);
+  assert.equal(again.last('state').you, 'r');
+
+  let last;
+  for (let i = 0; i < 5; i++) last = await connectPw(env, ID_C, { pw: 'sai-' + i });
+  assert.equal(last.last('error').code, 'bad_password');
+  const locked = await connectPw(env, ID_C, { pw: 'abcd1' });
+  assert.equal(locked.last('error').code, 'locked', 'khóa cả khi nhập đúng');
+});
+
+test('Mật khẩu: tạo phòng thiếu/yếu mật khẩu hoặc phòng đã có người thì bị từ chối', async () => {
+  const env = await makeRoom();
+  const short = await connectPw(env, ID_A, { create: true, pw: 'ab' });
+  assert.equal(short.last('error').code, 'bad_pw_format');
+  await connectPw(env, ID_A, {}); // vào phòng chưa có mật khẩu
+  const late = await connectPw(env, ID_B, { create: true, pw: 'abcd1' });
+  assert.equal(late.last('error').code, 'room_taken');
+});

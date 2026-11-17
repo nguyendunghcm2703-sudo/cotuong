@@ -3,7 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1b130c">
+  <meta name="theme-color" content="#140d08">
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+  <meta name="referrer" content="no-referrer">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Cờ tướng">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Cờ tướng 3D</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='29' fill='%23f1dbab' stroke='%23a8160f' stroke-width='4'/%3E%3Ctext x='32' y='45' font-size='34' text-anchor='middle' fill='%23a8160f'%3E帥%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="client/style.css">
@@ -39,11 +47,14 @@
     <button id="btnDraw" type="button" class="online-only">Xin hòa</button>
     <button id="btnResign" type="button" class="online-only">Xin thua</button>
     <button id="btnLeave" type="button" class="online-only">Rời phòng</button>
+    <button id="btnExit" type="button" class="local-only">Thoát</button>
 
-    <button id="btnSeat" type="button">Góc ngồi</button>
-    <button id="btnTop" type="button">Nhìn từ trên</button>
+    <button id="btnView" type="button">Chế độ: 3D</button>
+    <button id="btnRotate" type="button" class="view3d-only" aria-pressed="false">Xoay: khóa</button>
+    <button id="btnSeat" type="button" class="view3d-only">Góc ngồi</button>
+    <button id="btnTop" type="button" class="view3d-only">Nhìn từ trên</button>
     <button id="btnSound" type="button" aria-pressed="true">Âm thanh: bật</button>
-    <button id="btnQuality" type="button" aria-pressed="false">Đồ họa: cao</button>
+    <button id="btnQuality" type="button" class="view3d-only" aria-pressed="false">Đồ họa: cao</button>
     <button id="btnFull" type="button">Toàn màn hình</button>
   </div>
 
@@ -61,7 +72,7 @@
     <div id="bannerText"></div>
     <div class="row">
       <button id="bannerNew" type="button">Ván mới</button>
-      <button id="bannerLeave" type="button" class="online-only">Rời phòng</button>
+      <button id="bannerLeave" type="button">Thoát</button>
     </div>
   </div>
 
@@ -79,12 +90,16 @@
         <label><input type="radio" name="side" value="any"> Ngẫu nhiên</label>
       </fieldset>
 
+      <label class="pwline">Mật khẩu phòng
+        <input id="pwInput" placeholder="4 đến 32 ký tự" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
       <button id="btnCreate" type="button" class="primary">Tạo phòng và mời bạn</button>
 
       <div class="row">
-        <input id="codeInput" placeholder="Nhập mã phòng" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <input id="codeInput" placeholder="Mã phòng" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button id="btnJoin" type="button">Vào phòng</button>
       </div>
+      <p class="hint">Người tạo phòng đặt mật khẩu, người vào nhập đúng mã phòng và mật khẩu (link mời đã kèm sẵn).</p>
       <div id="lobbyErr" role="alert"></div>
 
       <button id="btnLocal" type="button" class="link">Chơi hai người trên một máy</button>
@@ -97,9 +112,16 @@
     setTimeout(function () {
       var el = document.getElementById('loading');
       if (el && !el.hidden) {
-        el.textContent = 'Không tải được thư viện 3D. Hãy kiểm tra kết nối mạng rồi tải lại trang.';
+        el.textContent = 'Không tải được trang. Hãy kiểm tra kết nối mạng rồi tải lại.';
       }
     }, 10000);
+  </script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function () {});
+      });
+    }
   </script>
   <script type="module" src="client/main.js"></script>
 </body>

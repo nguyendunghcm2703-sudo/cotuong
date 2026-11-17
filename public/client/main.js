@@ -2,12 +2,13 @@
 // Online: server là nơi quyết định, client chỉ gửi nước đi và hiển thị những gì server xác nhận.
 
 import { createGame, legalMoves, applyMove, getResult, isInCheck, fromICCS } from '../shared/xiangqi.js';
-import { createView } from './board3d.js';
+import { createBestView } from './views.js';
+import { capturedFromHistory } from './tray.js';
 import { playClack, unlockAudio, setSoundEnabled } from './sound.js';
 import { connect } from './net.js';
 
 const $ = (id) => document.getElementById(id);
-const view = createView($('stage'));
+let view = null; // 3D hoặc 2D, tạo ở phần khởi động
 const BASE_TITLE = 'Cờ tướng 3D';
 
 // ---------- trạng thái chung ----------
@@ -21,6 +22,12 @@ let autoFlip = false;
 let sound = true;
 let lowQuality = false;
 let uiHidden = false;
+let prefer2d = false;
+let rotateOn = false;
+let slowHinted = false;
+let switching = false;
+let roomPw = null;
+let creating = false;
 
 // ---------- trạng thái online ----------
 let net = null;
@@ -49,6 +56,8 @@ const isSeated = () => mySide === 'r' || mySide === 'b';
 
 // ---------- cài đặt lưu trên máy ----------
 function loadPrefs() {
+  // màn hình nhỏ (điện thoại ngang): mặc định ẩn thanh nút để không che bàn cờ
+  uiHidden = window.matchMedia('(max-height: 520px)').matches;
   try {
     const raw = localStorage.getItem('cotuong3d.prefs');
     if (!raw) return;
@@ -56,7 +65,9 @@ function loadPrefs() {
     sound = p.sound !== false;
     autoFlip = p.autoFlip === true;
     lowQuality = p.lowQuality === true;
-    uiHidden = p.uiHidden === true;
+    if (typeof p.uiHidden === 'boolean') uiHidden = p.uiHidden;
+    prefer2d = p.prefer2d === true;
+    rotateOn = p.rotateOn === true;
   } catch (e) {
     /* bỏ qua */
   }
@@ -65,7 +76,7 @@ function savePrefs() {
   try {
     localStorage.setItem(
       'cotuong3d.prefs',
-      JSON.stringify({ sound, autoFlip, lowQuality, uiHidden })
+      JSON.stringify({ sound, autoFlip, lowQuality, uiHidden, prefer2d, rotateOn })
     );
   } catch (e) {
     /* bỏ qua */
@@ -117,6 +128,28 @@ function rememberIdForRoom(code, id) {
   }
 }
 
+function savedPw(code) {
+  try {
+    return localStorage.getItem('cotuong3d.pw.' + code) || '';
+  } catch (e) {
+    return '';
+  }
+}
+function rememberPw(code, pw) {
+  try {
+    if (pw) localStorage.setItem('cotuong3d.pw.' + code, pw);
+    else localStorage.removeItem('cotuong3d.pw.' + code);
+  } catch (e) {
+    /* bỏ qua */
+  }
+}
+const PW_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+function randomPw(n = 5) {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return Array.from(a, (v) => PW_ALPHABET[v % PW_ALPHABET.length]).join('');
+}
+
 function normalizeCode(text) {
   return String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
@@ -138,6 +171,121 @@ function toast(text, ms = 2600) {
   toastTimer = setTimeout(() => {
     el.hidden = true;
   }, ms);
+}
+
+// ---------- view 3D / 2D ----------
+function syncView(g) {
+  view.sync(g.board, capturedFromHistory(g.history));
+}
+
+let down = null;
+function bindPointer(v) {
+  v.domElement.addEventListener('pointerdown', (e) => {
+    down = { x: e.clientX, y: e.clientY, t: performance.now() };
+  });
+  v.domElement.addEventListener('pointerup', (e) => {
+    if (!down) return;
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    const quick = performance.now() - down.t < 500;
+    down = null;
+    if (moved < 8 && quick) onTap(e.clientX, e.clientY);
+  });
+}
+
+// Chừa chỗ cho thanh trạng thái phía trên và thanh nút phía dưới để không che bàn cờ.
+function updateInsets() {
+  if (!view) return;
+  const bottomOf = (id) => {
+    const el = $(id);
+    if (!el || el.hidden) return 0;
+    const r = el.getBoundingClientRect();
+    return r.height > 0 ? r.bottom : 0;
+  };
+  const topOf = (id) => {
+    const el = $(id);
+    if (!el || el.hidden) return window.innerHeight;
+    const r = el.getBoundingClientRect();
+    return r.height > 0 ? r.top : window.innerHeight;
+  };
+  let top = 0;
+  let bottom = 0;
+  if (mode !== 'lobby') {
+    top = Math.max(bottomOf('hud'), mode === 'online' ? bottomOf('roomBar') : 0);
+    if (top) top += 6;
+    const tt = topOf('toolbar');
+    if (tt < window.innerHeight) bottom = window.innerHeight - tt + 6;
+  }
+  view.setInsets(top, bottom);
+}
+window.addEventListener('resize', () => requestAnimationFrame(updateInsets));
+
+function renderViewUi() {
+  const is3d = view && view.kind === '3d';
+  document.body.dataset.view = is3d ? '3d' : '2d';
+  $('btnView').textContent = `Chế độ: ${is3d ? '3D' : '2D'}`;
+  $('btnRotate').textContent = `Xoay: ${rotateOn ? 'mở' : 'khóa'}`;
+  $('btnRotate').setAttribute('aria-pressed', String(rotateOn));
+}
+
+function attachView(v) {
+  view = v;
+  v.onSlow = handleSlow;
+  v.onContextLost = handleLost;
+  bindPointer(v);
+  v.setQuality(lowQuality);
+  v.setRotateEnabled(rotateOn);
+  v.setFlipped(flipped, false);
+  syncView(cur());
+  renderViewUi();
+  updateInsets();
+}
+
+async function mountView(use2d) {
+  const r = await createBestView($('stage'), use2d);
+  attachView(r.view);
+  return r.reason;
+}
+
+async function switchView(use2d) {
+  if (switching) return;
+  switching = true;
+  try {
+    const t0 = performance.now();
+    while (busy && performance.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 50));
+    if (busy) {
+      toast('Đang đi quân, thử lại sau giây lát');
+      return;
+    }
+    const old = view;
+    old.onSlow = null;
+    old.onContextLost = null;
+    old.dispose();
+    const reason = await mountView(use2d);
+    refresh();
+    if (!use2d && reason) toast('Thiết bị này chưa chạy được 3D, đang dùng 2D');
+  } finally {
+    switching = false;
+  }
+}
+
+function handleSlow() {
+  if (!view || view.kind !== '3d') return;
+  if (!lowQuality) {
+    lowQuality = true;
+    view.setQuality(true);
+    savePrefs();
+    renderToggles();
+    toast('Máy hơi chậm nên đã tự giảm đồ họa');
+  } else if (!slowHinted) {
+    slowHinted = true;
+    toast('Vẫn chậm? Bấm "Chế độ: 3D" để chuyển sang 2D cho nhẹ', 5500);
+  }
+}
+
+function handleLost() {
+  toast('Màn hình 3D bị ngắt, đang chuyển sang 2D', 4000);
+  prefer2d = false;
+  switchView(true);
 }
 
 // ---------- hiển thị ----------
@@ -229,6 +377,7 @@ function refresh() {
   }
 
   $('offer').hidden = !(seated && !res && drawOffer && drawOffer !== mySide);
+  updateInsets();
 }
 
 function setMode(m) {
@@ -277,7 +426,7 @@ function resetCommon() {
   rematch = { r: false, b: false };
   gotSnapshot = false;
   deselect();
-  view.sync(cur().board);
+  syncView(cur());
   setFlip(false, false);
 }
 
@@ -309,7 +458,7 @@ function doMove(from, to) {
   view.animateMove(from, to, () => {
     playClack(capture);
     states.push(next);
-    view.sync(next.board);
+    syncView(next);
     busy = false;
     refresh();
     if (autoFlip) setFlip(next.turn === 'b');
@@ -339,19 +488,6 @@ function onTap(clientX, clientY) {
   }
 }
 
-// Phân biệt chạm/nhấp (chọn ô) với kéo (xoay camera).
-let down = null;
-view.domElement.addEventListener('pointerdown', (e) => {
-  down = { x: e.clientX, y: e.clientY, t: performance.now() };
-});
-view.domElement.addEventListener('pointerup', (e) => {
-  if (!down) return;
-  const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-  const quick = performance.now() - down.t < 500;
-  down = null;
-  if (moved < 8 && quick) onTap(e.clientX, e.clientY);
-});
-
 // ---------- online: nhận tin từ server ----------
 const ERRORS = {
   waiting: 'Chưa có đối thủ trong phòng',
@@ -361,6 +497,23 @@ const ERRORS = {
   spectator: 'Bạn đang ở chế độ xem',
   bad_id: 'Lỗi định danh, hãy tải lại trang',
 };
+
+const AUTH_ERRORS = {
+  need_password: 'Phòng này cần mật khẩu. Nhập mật khẩu rồi bấm Vào phòng.',
+  bad_password: 'Sai mật khẩu',
+  locked: 'Nhập sai nhiều lần, hãy thử lại sau 1 phút',
+  room_taken: 'Mã phòng này đã có người dùng, hãy tạo phòng mới',
+  bad_pw_format: 'Mật khẩu cần từ 4 đến 32 ký tự',
+};
+
+function authFail(code, room) {
+  if (code === 'bad_password' || code === 'need_password') rememberPw(room, '');
+  leaveRoom();
+  $('codeInput').value = room;
+  lobbyError(AUTH_ERRORS[code]);
+  $('pwInput').value = '';
+  $('pwInput').focus();
+}
 
 function applyOrientation(animate) {
   setFlip(mySide === 'b', animate);
@@ -386,7 +539,7 @@ function loadSnapshot(m) {
   drawOffer = m.drawOffer;
   rematch = m.rematch;
   deselect();
-  view.sync(g.board);
+  syncView(g);
   applyOrientation(gotSnapshot);
   gotSnapshot = true;
   if (isSeated() && roomCode) rememberIdForRoom(roomCode, myId);
@@ -420,7 +573,7 @@ function playServerMove(it) {
     if (myEpoch !== epoch) return; // trạng thái đã được thay bằng bản mới từ server
     playClack(capture);
     states = [next];
-    view.sync(next.board);
+    syncView(next);
     drawOffer = null;
     if (it.over) serverOver = it.over;
     busy = false;
@@ -497,6 +650,10 @@ function onNetMessage(m) {
       refresh();
       break;
     case 'error':
+      if (AUTH_ERRORS[m.code]) {
+        authFail(m.code, roomCode);
+        break;
+      }
       pending = false;
       toast(ERRORS[m.code] || 'Có lỗi, hãy thử lại');
       refresh();
@@ -514,11 +671,14 @@ function startLocal() {
   refresh();
 }
 
-function startOnline(code, want) {
+function startOnline(code, want, pw = '', create = false) {
   leaveRoom(false);
   resetCommon();
   setMode('online');
   roomCode = code;
+  roomPw = pw || null;
+  creating = create;
+  if (pw) rememberPw(code, pw);
   myId = tabId();
   connStatus = 'connecting';
   setUrlRoom(code);
@@ -527,6 +687,8 @@ function startOnline(code, want) {
     clientId: myId,
     prevId: lastIdForRoom(code),
     want,
+    pw: roomPw || undefined,
+    create: creating || undefined,
     onMessage: onNetMessage,
     onStatus: (s) => {
       connStatus = s;
@@ -540,6 +702,8 @@ function leaveRoom(toLobby = true) {
   if (net) net.close();
   net = null;
   roomCode = null;
+  roomPw = null;
+  creating = false;
   connStatus = 'closed';
   if (toLobby) {
     setUrlRoom(null);
@@ -551,8 +715,9 @@ function leaveRoom(toLobby = true) {
 }
 
 async function invite() {
-  const url = `${location.origin}${location.pathname}?room=${roomCode}`;
-  const text = `Đánh cờ tướng 3D với mình nhé! Mã phòng: ${roomCode}`;
+  const pwPart = roomPw ? `#pw=${encodeURIComponent(roomPw)}` : '';
+  const url = `${location.origin}${location.pathname}?room=${roomCode}${pwPart}`;
+  const text = `Đánh cờ tướng 3D với mình nhé! Mã phòng: ${roomCode}` + (roomPw ? `, mật khẩu: ${roomPw}` : '');
   const touch = window.matchMedia('(pointer: coarse)').matches;
   if (touch && navigator.share) {
     try {
@@ -582,7 +747,7 @@ function undo() {
   if (busy || states.length < 2) return;
   states.pop();
   deselect();
-  view.sync(cur().board);
+  syncView(cur());
   refresh();
   if (autoFlip) setFlip(cur().turn === 'b');
 }
@@ -637,6 +802,7 @@ function applyUi() {
   $('toolbar').hidden = uiHidden;
   $('btnMenu').textContent = uiHidden ? '☰' : '✕';
   $('btnMenu').setAttribute('aria-expanded', String(!uiHidden));
+  updateInsets();
 }
 
 const fsRoot = document.documentElement;
@@ -670,6 +836,22 @@ document.addEventListener('fullscreenchange', updateFullBtn);
 document.addEventListener('webkitfullscreenchange', updateFullBtn);
 
 // ---------- nút: chung ----------
+$('btnExit').addEventListener('click', () => {
+  if (states.length > 1 && !currentResult() && !window.confirm('Thoát ván đang chơi?')) return;
+  leaveRoom();
+});
+$('btnView').addEventListener('click', () => {
+  const to2d = view.kind === '3d';
+  prefer2d = to2d;
+  savePrefs();
+  switchView(to2d);
+});
+$('btnRotate').addEventListener('click', () => {
+  rotateOn = !rotateOn;
+  view.setRotateEnabled(rotateOn);
+  savePrefs();
+  renderViewUi();
+});
 $('btnSeat').addEventListener('click', () => view.resetCamera());
 $('btnTop').addEventListener('click', () => view.topView());
 $('btnSound').addEventListener('click', () => {
@@ -694,8 +876,17 @@ function lobbyError(text) {
 $('btnCreate').addEventListener('click', () => {
   unlockAudio();
   const want = document.querySelector('input[name="side"]:checked').value;
+  let pw = $('pwInput').value.trim();
+  if (!pw) {
+    pw = randomPw();
+    $('pwInput').value = pw;
+  }
+  if (pw.length < 4 || pw.length > 32) {
+    lobbyError('Mật khẩu cần từ 4 đến 32 ký tự');
+    return;
+  }
   lobbyError('');
-  startOnline(randomCode(), want);
+  startOnline(randomCode(), want, pw, true);
 });
 
 function joinFromInput() {
@@ -706,7 +897,7 @@ function joinFromInput() {
     return;
   }
   lobbyError('');
-  startOnline(code, 'any');
+  startOnline(code, 'any', $('pwInput').value.trim() || savedPw(code), false);
 }
 $('btnJoin').addEventListener('click', joinFromInput);
 $('codeInput').addEventListener('keydown', (e) => {
@@ -719,17 +910,44 @@ $('btnLocal').addEventListener('click', () => {
 });
 
 // ---------- khởi động ----------
-loadPrefs();
-setSoundEnabled(sound);
-view.setQuality(lowQuality);
-renderToggles();
-applyUi();
-updateFullBtn();
-view.sync(cur().board);
-refresh();
+async function start() {
+  loadPrefs();
+  setSoundEnabled(sound);
+  renderToggles();
+  applyUi();
+  updateFullBtn();
+  try {
+    const reason = await mountView(prefer2d);
+    if (reason === 'no-webgl' || reason === 'error') {
+      toast('Thiết bị này chưa chạy được 3D, đang dùng chế độ 2D nhìn từ trên', 5000);
+    }
+  } catch (e) {
+    $('loading').textContent = 'Không khởi tạo được bàn cờ. Hãy tải lại trang hoặc dùng trình duyệt khác.';
+    throw e;
+  }
+  refresh();
 
-const roomFromUrl = normalizeCode(new URLSearchParams(location.search).get('room'));
-if (validCode(roomFromUrl)) startOnline(roomFromUrl, 'any');
-else setMode('lobby');
+  // Link mời: ?room=MÃ#pw=MẬT-KHẨU. Phần sau dấu # không gửi lên server, và được xóa khỏi thanh địa chỉ.
+  const roomFromUrl = normalizeCode(new URLSearchParams(location.search).get('room'));
+  let pwFromUrl = '';
+  {
+    const m = /(?:^|[#&])pw=([^&]*)/.exec(location.hash);
+    if (m) {
+      try {
+        pwFromUrl = decodeURIComponent(m[1]).slice(0, 32);
+      } catch (e) {
+        pwFromUrl = '';
+      }
+    }
+  }
+  if (validCode(roomFromUrl)) {
+    setUrlRoom(roomFromUrl);
+    startOnline(roomFromUrl, 'any', pwFromUrl || savedPw(roomFromUrl), false);
+  } else {
+    setMode('lobby');
+  }
 
-$('loading').hidden = true;
+  $('loading').hidden = true;
+}
+
+start();

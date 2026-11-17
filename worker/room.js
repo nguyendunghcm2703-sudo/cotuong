@@ -3,7 +3,7 @@
 // để tiết kiệm hạn mức, kết nối WebSocket vẫn giữ nguyên.
 
 import { DurableObject } from 'cloudflare:workers';
-import { newRoomData, isValidId, roleOf, join, snapshot, handle } from './room-logic.js';
+import { newRoomData, isValidId, roleOf, join, snapshot, handle, authorize } from './room-logic.js';
 
 const MAX_SOCKETS = 12;
 const MAX_MESSAGE = 2048;
@@ -109,6 +109,12 @@ export class Room extends DurableObject {
     if (msg.t === 'join') {
       if (!isValidId(msg.id)) {
         this.send(ws, { t: 'error', code: 'bad_id' });
+        return;
+      }
+      const auth = await authorize(this.data, msg);
+      if (auth.changed) await this.save();
+      if (!auth.ok) {
+        this.send(ws, { t: 'error', code: auth.error });
         return;
       }
       ws.serializeAttachment({ id: msg.id });

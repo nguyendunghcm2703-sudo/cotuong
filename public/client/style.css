@@ -3,7 +3,7 @@
 html, body {
   margin: 0;
   height: 100%;
-  background: #1b130c;
+  background: #140d08;
   color: #f3e6cf;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
@@ -237,3 +237,21 @@ body[data-mode="lobby"] #hud { display: none; }
   z-index: 10;
 }
 #loading[hidden] { display: none; }
+
+/* nút chỉ có ý nghĩa ở chế độ 3D */
+body[data-view="2d"] .view3d-only { display: none; }
+body[data-mode="online"] #btnExit { display: none; }
+#btnRotate[aria-pressed="true"] { background: #a8281f; border-color: #d8584d; }
+
+#lobby .pwline { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: rgba(243, 230, 207, 0.75); }
+#pwInput {
+  font: inherit;
+  font-size: 16px;
+  color: #f3e6cf;
+  background: rgba(243, 230, 207, 0.08);
+  border: 1px solid rgba(243, 230, 207, 0.28);
+  border-radius: 10px;
+  padding: 10px 12px;
+  user-select: text;
+}
+#lobby .hint { margin: 0; font-size: 12px; text-align: center; color: rgba(243, 230, 207, 0.6); }

@@ -3,7 +3,7 @@
 const PING_EVERY = 25000;
 const PONG_TIMEOUT = 3500;
 
-export function connect({ code, clientId, prevId, want, onMessage, onStatus }) {
+export function connect({ code, clientId, prevId, want, pw, create, onMessage, onStatus }) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/ws/${code}`;
 
@@ -40,7 +40,7 @@ export function connect({ code, clientId, prevId, want, onMessage, onStatus }) {
       attempt = 0;
       lastPong = Date.now();
       onStatus('open');
-      sock.send(JSON.stringify({ t: 'join', id: clientId, prev: prevId || undefined, want }));
+      sock.send(JSON.stringify({ t: 'join', id: clientId, prev: prevId || undefined, want, pw, create }));
       clearTimers();
       pingTimer = setInterval(() => ping(sock), PING_EVERY);
     });
