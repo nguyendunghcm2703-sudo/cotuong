@@ -123,15 +123,12 @@ button.link {
   line-height: 1;
   z-index: 3;
 }
-body[data-mode="lobby"] #btnMenu { display: none; }
 
 /* nút theo chế độ chơi */
 .online-only { display: none; }
 body[data-mode="online"] .online-only { display: inline-block; }
 body[data-mode="online"] .local-only { display: none; }
 body[data-mode="online"] #roomBar { display: block; }
-body[data-mode="lobby"] #toolbar,
-body[data-mode="lobby"] #hud { display: none; }
 
 .card {
   position: fixed;
@@ -171,7 +168,7 @@ body[data-mode="lobby"] #hud { display: none; }
 }
 #toast[hidden] { display: none; }
 
-#lobby {
+#lobby, #gate {
   position: fixed;
   inset: 0;
   display: flex;
@@ -182,8 +179,8 @@ body[data-mode="lobby"] #hud { display: none; }
   z-index: 5;
   overflow: auto;
 }
-#lobby[hidden] { display: none; }
-#lobby .panel {
+#lobby[hidden], #gate[hidden] { display: none; }
+#lobby .panel, #gate .panel {
   width: 100%;
   max-width: 380px;
   display: flex;
@@ -194,8 +191,8 @@ body[data-mode="lobby"] #hud { display: none; }
   border: 1px solid rgba(243, 230, 207, 0.3);
   border-radius: 18px;
 }
-#lobby h1 { margin: 0; font-size: 26px; text-align: center; }
-#lobby .sub { margin: 0; font-size: 14px; text-align: center; color: rgba(243, 230, 207, 0.75); }
+#lobby h1, #gate h1 { margin: 0; font-size: 26px; text-align: center; }
+#lobby .sub, #gate .sub { margin: 0; font-size: 14px; text-align: center; color: rgba(243, 230, 207, 0.75); }
 #lobby fieldset {
   margin: 0;
   padding: 10px 14px 12px;
@@ -240,18 +237,28 @@ body[data-mode="lobby"] #hud { display: none; }
 
 /* nút chỉ có ý nghĩa ở chế độ 3D */
 body[data-view="2d"] .view3d-only { display: none; }
-body[data-mode="online"] #btnExit { display: none; }
 #btnRotate[aria-pressed="true"] { background: #a8281f; border-color: #d8584d; }
 
-#lobby .pwline { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: rgba(243, 230, 207, 0.75); }
-#pwInput {
+
+#gateInput {
   font: inherit;
   font-size: 16px;
   color: #f3e6cf;
   background: rgba(243, 230, 207, 0.08);
   border: 1px solid rgba(243, 230, 207, 0.28);
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 12px;
   user-select: text;
 }
-#lobby .hint { margin: 0; font-size: 12px; text-align: center; color: rgba(243, 230, 207, 0.6); }
+#gateErr { min-height: 18px; font-size: 13px; color: #ffb4a8; text-align: center; }
+#gate { z-index: 6; }
+
+/* thanh nút gọn: nút phụ nằm trong nhóm "Thêm" */
+#moreGroup { display: contents; }
+#btnMore { display: none; }
+body.small #btnMore { display: inline-block; }
+body.small #moreGroup { display: none; }
+body.small.more-open #moreGroup { display: contents; }
+body.small #toolbar { gap: 6px; }
+body.small button { padding: 8px 11px; min-height: 40px; font-size: 13px; }
+body.small #btnMenu { width: 40px; height: 40px; min-height: 40px; }

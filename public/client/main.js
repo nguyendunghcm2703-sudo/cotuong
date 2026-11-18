@@ -12,7 +12,7 @@ let view = null; // 3D hoặc 2D, tạo ở phần khởi động
 const BASE_TITLE = 'Cờ tướng 3D';
 
 // ---------- trạng thái chung ----------
-let mode = 'lobby'; // 'lobby' | 'local' | 'online'
+let mode = 'local'; // 'local' | 'online'
 let states = [createGame()];
 let selected = null;
 let targetSet = new Set();
@@ -22,12 +22,13 @@ let autoFlip = false;
 let sound = true;
 let lowQuality = false;
 let uiHidden = false;
+let uiHiddenUser = null; // chỉ có giá trị khi người chơi tự bấm ẩn/hiện
+let moreOpen = false;
 let prefer2d = false;
 let rotateOn = false;
 let slowHinted = false;
 let switching = false;
-let roomPw = null;
-let creating = false;
+let pendingJoin = null;
 
 // ---------- trạng thái online ----------
 let net = null;
@@ -55,9 +56,24 @@ const isMine = (piece, turn) => piece !== '.' && (piece === piece.toUpperCase())
 const isSeated = () => mySide === 'r' || mySide === 'b';
 
 // ---------- cài đặt lưu trên máy ----------
+// Màn hình nhỏ (điện thoại dọc hoặc ngang): thanh nút mặc định ẩn, nút phụ gom vào "Thêm".
+function isSmallScreen() {
+  return window.matchMedia('(max-width: 600px), (max-height: 520px)').matches;
+}
+function applySmall() {
+  document.body.classList.toggle('small', isSmallScreen());
+  document.body.classList.toggle('more-open', moreOpen);
+  $('btnMore').setAttribute('aria-expanded', String(moreOpen));
+  $('btnMore').textContent = moreOpen ? '✕ Thu gọn' : '⋯ Thêm';
+}
+window.addEventListener('resize', () => {
+  applySmall();
+  requestAnimationFrame(updateInsets);
+});
+
 function loadPrefs() {
   // màn hình nhỏ (điện thoại ngang): mặc định ẩn thanh nút để không che bàn cờ
-  uiHidden = window.matchMedia('(max-height: 520px)').matches;
+  uiHidden = isSmallScreen();
   try {
     const raw = localStorage.getItem('cotuong3d.prefs');
     if (!raw) return;
@@ -65,7 +81,10 @@ function loadPrefs() {
     sound = p.sound !== false;
     autoFlip = p.autoFlip === true;
     lowQuality = p.lowQuality === true;
-    if (typeof p.uiHidden === 'boolean') uiHidden = p.uiHidden;
+    if (typeof p.uiHiddenUser === 'boolean') {
+      uiHiddenUser = p.uiHiddenUser;
+      uiHidden = p.uiHiddenUser;
+    }
     prefer2d = p.prefer2d === true;
     rotateOn = p.rotateOn === true;
   } catch (e) {
@@ -76,7 +95,7 @@ function savePrefs() {
   try {
     localStorage.setItem(
       'cotuong3d.prefs',
-      JSON.stringify({ sound, autoFlip, lowQuality, uiHidden, prefer2d, rotateOn })
+      JSON.stringify({ sound, autoFlip, lowQuality, uiHiddenUser, prefer2d, rotateOn })
     );
   } catch (e) {
     /* bỏ qua */
@@ -126,28 +145,6 @@ function rememberIdForRoom(code, id) {
   } catch (e) {
     /* bỏ qua */
   }
-}
-
-function savedPw(code) {
-  try {
-    return localStorage.getItem('cotuong3d.pw.' + code) || '';
-  } catch (e) {
-    return '';
-  }
-}
-function rememberPw(code, pw) {
-  try {
-    if (pw) localStorage.setItem('cotuong3d.pw.' + code, pw);
-    else localStorage.removeItem('cotuong3d.pw.' + code);
-  } catch (e) {
-    /* bỏ qua */
-  }
-}
-const PW_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
-function randomPw(n = 5) {
-  const a = new Uint8Array(n);
-  crypto.getRandomValues(a);
-  return Array.from(a, (v) => PW_ALPHABET[v % PW_ALPHABET.length]).join('');
 }
 
 function normalizeCode(text) {
@@ -209,7 +206,7 @@ function updateInsets() {
   };
   let top = 0;
   let bottom = 0;
-  if (mode !== 'lobby') {
+  {
     top = Math.max(bottomOf('hud'), mode === 'online' ? bottomOf('roomBar') : 0);
     if (top) top += 6;
     const tt = topOf('toolbar');
@@ -383,7 +380,6 @@ function refresh() {
 function setMode(m) {
   mode = m;
   document.body.dataset.mode = m;
-  $('lobby').hidden = m !== 'lobby';
 }
 
 function setFlip(flag, animate = true) {
@@ -467,7 +463,7 @@ function doMove(from, to) {
 
 function onTap(clientX, clientY) {
   unlockAudio();
-  if (mode === 'lobby' || busy || pending || currentResult()) return;
+  if (overlayOpen() || busy || pending || currentResult()) return;
   const s = cur();
   if (mode === 'online' && !(isSeated() && seats.r && seats.b && s.turn === mySide)) {
     deselect();
@@ -497,23 +493,6 @@ const ERRORS = {
   spectator: 'Bạn đang ở chế độ xem',
   bad_id: 'Lỗi định danh, hãy tải lại trang',
 };
-
-const AUTH_ERRORS = {
-  need_password: 'Phòng này cần mật khẩu. Nhập mật khẩu rồi bấm Vào phòng.',
-  bad_password: 'Sai mật khẩu',
-  locked: 'Nhập sai nhiều lần, hãy thử lại sau 1 phút',
-  room_taken: 'Mã phòng này đã có người dùng, hãy tạo phòng mới',
-  bad_pw_format: 'Mật khẩu cần từ 4 đến 32 ký tự',
-};
-
-function authFail(code, room) {
-  if (code === 'bad_password' || code === 'need_password') rememberPw(room, '');
-  leaveRoom();
-  $('codeInput').value = room;
-  lobbyError(AUTH_ERRORS[code]);
-  $('pwInput').value = '';
-  $('pwInput').focus();
-}
 
 function applyOrientation(animate) {
   setFlip(mySide === 'b', animate);
@@ -650,8 +629,11 @@ function onNetMessage(m) {
       refresh();
       break;
     case 'error':
-      if (AUTH_ERRORS[m.code]) {
-        authFail(m.code, roomCode);
+      if (m.code === 'unauthorized') {
+        const c = roomCode;
+        leaveRoom();
+        toast('Mã truy cập không còn hiệu lực, hãy nhập lại', 4500);
+        openRemote(c);
         break;
       }
       pending = false;
@@ -671,14 +653,11 @@ function startLocal() {
   refresh();
 }
 
-function startOnline(code, want, pw = '', create = false) {
+function startOnline(code, want) {
   leaveRoom(false);
   resetCommon();
   setMode('online');
   roomCode = code;
-  roomPw = pw || null;
-  creating = create;
-  if (pw) rememberPw(code, pw);
   myId = tabId();
   connStatus = 'connecting';
   setUrlRoom(code);
@@ -687,8 +666,6 @@ function startOnline(code, want, pw = '', create = false) {
     clientId: myId,
     prevId: lastIdForRoom(code),
     want,
-    pw: roomPw || undefined,
-    create: creating || undefined,
     onMessage: onNetMessage,
     onStatus: (s) => {
       connStatus = s;
@@ -698,26 +675,21 @@ function startOnline(code, want, pw = '', create = false) {
   refresh();
 }
 
-function leaveRoom(toLobby = true) {
+function leaveRoom(toLocal = true) {
   if (net) net.close();
   net = null;
   roomCode = null;
-  roomPw = null;
-  creating = false;
   connStatus = 'closed';
-  if (toLobby) {
+  if (toLocal) {
     setUrlRoom(null);
-    resetCommon();
-    setMode('lobby');
+    startLocal();
     document.title = BASE_TITLE;
-    refresh();
   }
 }
 
 async function invite() {
-  const pwPart = roomPw ? `#pw=${encodeURIComponent(roomPw)}` : '';
-  const url = `${location.origin}${location.pathname}?room=${roomCode}${pwPart}`;
-  const text = `Đánh cờ tướng 3D với mình nhé! Mã phòng: ${roomCode}` + (roomPw ? `, mật khẩu: ${roomPw}` : '');
+  const url = `${location.origin}${location.pathname}?room=${roomCode}`;
+  const text = `Đánh cờ tướng 3D với mình nhé! Mã phòng: ${roomCode}. Bạn cần mã truy cập mình đã gửi riêng.`;
   const touch = window.matchMedia('(pointer: coarse)').matches;
   if (touch && navigator.share) {
     try {
@@ -828,17 +800,24 @@ async function toggleFull() {
 
 $('btnMenu').addEventListener('click', () => {
   uiHidden = !uiHidden;
+  uiHiddenUser = uiHidden;
   applyUi();
   savePrefs();
+});
+$('btnMore').addEventListener('click', () => {
+  moreOpen = !moreOpen;
+  applySmall();
+  requestAnimationFrame(updateInsets);
 });
 $('btnFull').addEventListener('click', toggleFull);
 document.addEventListener('fullscreenchange', updateFullBtn);
 document.addEventListener('webkitfullscreenchange', updateFullBtn);
 
 // ---------- nút: chung ----------
-$('btnExit').addEventListener('click', () => {
-  if (states.length > 1 && !currentResult() && !window.confirm('Thoát ván đang chơi?')) return;
-  leaveRoom();
+$('btnRemote').addEventListener('click', () => {
+  unlockAudio();
+  if (states.length > 1 && !currentResult() && !window.confirm('Vào phòng chơi từ xa sẽ bỏ ván một máy đang chơi. Tiếp tục?')) return;
+  openRemote(null);
 });
 $('btnView').addEventListener('click', () => {
   const to2d = view.kind === '3d';
@@ -868,25 +847,113 @@ $('btnQuality').addEventListener('click', () => {
   renderToggles();
 });
 
-// ---------- sảnh ----------
+// ---------- chơi từ xa: nhập mã truy cập rồi tới sảnh ----------
+function overlayOpen() {
+  return !$('gate').hidden || !$('lobby').hidden;
+}
+
 function lobbyError(text) {
   $('lobbyErr').textContent = text;
 }
 
+function showGate(msg = '') {
+  $('lobby').hidden = true;
+  $('gate').hidden = false;
+  $('gateErr').textContent = msg;
+  $('gateInput').value = '';
+  setTimeout(() => $('gateInput').focus(), 50);
+}
+
+function showLobby() {
+  $('gate').hidden = true;
+  $('lobby').hidden = false;
+  lobbyError('');
+  $('codeInput').value = '';
+}
+
+function closeRemote() {
+  $('gate').hidden = true;
+  $('lobby').hidden = true;
+  if (mode !== 'online') setUrlRoom(null);
+}
+
+function afterAccess() {
+  $('gate').hidden = true;
+  if (pendingJoin) {
+    const code = pendingJoin;
+    pendingJoin = null;
+    startOnline(code, 'any');
+  } else {
+    showLobby();
+  }
+}
+
+// joinCode: mã phòng từ link mời (nếu có); nhập mã xong sẽ vào thẳng phòng đó.
+async function openRemote(joinCode) {
+  pendingJoin = joinCode;
+  let st = null;
+  try {
+    st = await (await fetch('/api/session', { cache: 'no-store' })).json();
+  } catch (e) {
+    toast('Không kết nối được máy chủ, hãy kiểm tra mạng', 4000);
+    pendingJoin = null;
+    return;
+  }
+  if (!st.configured) {
+    toast('Phần chơi từ xa chưa được cấu hình mã truy cập (SITE_PASSWORD)', 6000);
+    pendingJoin = null;
+    return;
+  }
+  if (st.ok) afterAccess();
+  else showGate();
+}
+
+async function submitGate() {
+  const code = $('gateInput').value;
+  if (!code) {
+    $('gateErr').textContent = 'Hãy nhập mã';
+    return;
+  }
+  $('gateGo').disabled = true;
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (res.ok) {
+      afterAccess();
+    } else if (res.status === 429) {
+      const j = await res.json().catch(() => ({}));
+      const min = Math.max(1, Math.ceil((j.retryAfter || 300) / 60));
+      $('gateErr').textContent = `Nhập sai nhiều lần, hãy thử lại sau ${min} phút`;
+    } else if (res.status === 503) {
+      $('gateErr').textContent = 'Máy chủ chưa cấu hình mã truy cập';
+    } else {
+      $('gateErr').textContent = 'Mã không đúng';
+      $('gateInput').select();
+    }
+  } catch (e) {
+    $('gateErr').textContent = 'Không kết nối được máy chủ';
+  } finally {
+    $('gateGo').disabled = false;
+  }
+}
+$('gateGo').addEventListener('click', submitGate);
+$('gateInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') submitGate();
+});
+$('gateCancel').addEventListener('click', () => {
+  pendingJoin = null;
+  closeRemote();
+});
+$('btnLobbyClose').addEventListener('click', closeRemote);
+
 $('btnCreate').addEventListener('click', () => {
   unlockAudio();
   const want = document.querySelector('input[name="side"]:checked').value;
-  let pw = $('pwInput').value.trim();
-  if (!pw) {
-    pw = randomPw();
-    $('pwInput').value = pw;
-  }
-  if (pw.length < 4 || pw.length > 32) {
-    lobbyError('Mật khẩu cần từ 4 đến 32 ký tự');
-    return;
-  }
-  lobbyError('');
-  startOnline(randomCode(), want, pw, true);
+  $('lobby').hidden = true;
+  startOnline(randomCode(), want);
 });
 
 function joinFromInput() {
@@ -896,22 +963,19 @@ function joinFromInput() {
     lobbyError('Mã phòng gồm 4 đến 12 chữ và số');
     return;
   }
-  lobbyError('');
-  startOnline(code, 'any', $('pwInput').value.trim() || savedPw(code), false);
+  $('lobby').hidden = true;
+  startOnline(code, 'any');
 }
 $('btnJoin').addEventListener('click', joinFromInput);
 $('codeInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') joinFromInput();
 });
 $('codeInput').addEventListener('input', () => lobbyError(''));
-$('btnLocal').addEventListener('click', () => {
-  unlockAudio();
-  startLocal();
-});
 
 // ---------- khởi động ----------
 async function start() {
   loadPrefs();
+  applySmall();
   setSoundEnabled(sound);
   renderToggles();
   applyUi();
@@ -927,25 +991,11 @@ async function start() {
   }
   refresh();
 
-  // Link mời: ?room=MÃ#pw=MẬT-KHẨU. Phần sau dấu # không gửi lên server, và được xóa khỏi thanh địa chỉ.
+  // Mặc định là cờ hai người một máy. Link mời (?room=MÃ) đi qua bước nhập mã truy cập rồi vào phòng.
   const roomFromUrl = normalizeCode(new URLSearchParams(location.search).get('room'));
-  let pwFromUrl = '';
-  {
-    const m = /(?:^|[#&])pw=([^&]*)/.exec(location.hash);
-    if (m) {
-      try {
-        pwFromUrl = decodeURIComponent(m[1]).slice(0, 32);
-      } catch (e) {
-        pwFromUrl = '';
-      }
-    }
-  }
-  if (validCode(roomFromUrl)) {
-    setUrlRoom(roomFromUrl);
-    startOnline(roomFromUrl, 'any', pwFromUrl || savedPw(roomFromUrl), false);
-  } else {
-    setMode('lobby');
-  }
+  startLocal();
+  if (validCode(roomFromUrl)) openRemote(roomFromUrl);
+  else setUrlRoom(null);
 
   $('loading').hidden = true;
 }

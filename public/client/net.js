@@ -3,7 +3,7 @@
 const PING_EVERY = 25000;
 const PONG_TIMEOUT = 3500;
 
-export function connect({ code, clientId, prevId, want, pw, create, onMessage, onStatus }) {
+export function connect({ code, clientId, prevId, want, onMessage, onStatus }) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/ws/${code}`;
 
@@ -13,6 +13,7 @@ export function connect({ code, clientId, prevId, want, pw, create, onMessage, o
   let retryTimer = null;
   let pingTimer = null;
   let lastPong = 0;
+  let failures = 0; // số lần liên tiếp chưa mở được kết nối
 
   function clearTimers() {
     clearInterval(pingTimer);
@@ -36,11 +37,13 @@ export function connect({ code, clientId, prevId, want, pw, create, onMessage, o
     ws = sock;
 
     sock.addEventListener('open', () => {
+      sock.__opened = true;
       if (ws !== sock) return;
       attempt = 0;
+      failures = 0;
       lastPong = Date.now();
       onStatus('open');
-      sock.send(JSON.stringify({ t: 'join', id: clientId, prev: prevId || undefined, want, pw, create }));
+      sock.send(JSON.stringify({ t: 'join', id: clientId, prev: prevId || undefined, want }));
       clearTimers();
       pingTimer = setInterval(() => ping(sock), PING_EVERY);
     });
@@ -62,6 +65,22 @@ export function connect({ code, clientId, prevId, want, pw, create, onMessage, o
     sock.addEventListener('close', () => {
       if (ws !== sock) return;
       clearTimers();
+      if (!sock.__opened) failures += 1;
+      // Bị từ chối liên tiếp: có thể cookie truy cập đã hết hạn hoặc mã đã đổi.
+      if (failures >= 2) {
+        failures = 0;
+        fetch('/api/session', { cache: 'no-store' })
+          .then((r) => r.json())
+          .then((s) => {
+            if (closed) return;
+            if (!s.ok) {
+              closed = true;
+              onMessage({ t: 'error', code: 'unauthorized' });
+            } else schedule();
+          })
+          .catch(() => schedule());
+        return;
+      }
       schedule();
     });
 

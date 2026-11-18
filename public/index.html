@@ -24,7 +24,7 @@
     }
   </script>
 </head>
-<body data-mode="lobby">
+<body data-mode="local">
   <div id="stage"></div>
 
   <div id="hud">
@@ -41,21 +41,25 @@
     <button id="btnNew" type="button" class="local-only">Ván mới</button>
     <button id="btnUndo" type="button" class="local-only">Đi lại</button>
     <button id="btnFlip" type="button" class="local-only">Lật bàn</button>
-    <button id="btnAuto" type="button" class="local-only" aria-pressed="false">Tự lật: tắt</button>
+    <button id="btnRemote" type="button" class="local-only">Chơi với bạn ở xa</button>
 
     <button id="btnInvite" type="button" class="online-only">Mời bạn</button>
     <button id="btnDraw" type="button" class="online-only">Xin hòa</button>
     <button id="btnResign" type="button" class="online-only">Xin thua</button>
     <button id="btnLeave" type="button" class="online-only">Rời phòng</button>
-    <button id="btnExit" type="button" class="local-only">Thoát</button>
 
-    <button id="btnView" type="button">Chế độ: 3D</button>
-    <button id="btnRotate" type="button" class="view3d-only" aria-pressed="false">Xoay: khóa</button>
-    <button id="btnSeat" type="button" class="view3d-only">Góc ngồi</button>
-    <button id="btnTop" type="button" class="view3d-only">Nhìn từ trên</button>
-    <button id="btnSound" type="button" aria-pressed="true">Âm thanh: bật</button>
-    <button id="btnQuality" type="button" class="view3d-only" aria-pressed="false">Đồ họa: cao</button>
-    <button id="btnFull" type="button">Toàn màn hình</button>
+    <button id="btnMore" type="button" aria-expanded="false">⋯ Thêm</button>
+
+    <div id="moreGroup">
+      <button id="btnAuto" type="button" class="local-only" aria-pressed="false">Tự lật: tắt</button>
+      <button id="btnView" type="button">Chế độ: 3D</button>
+      <button id="btnRotate" type="button" class="view3d-only" aria-pressed="false">Xoay: khóa</button>
+      <button id="btnSeat" type="button" class="view3d-only">Góc ngồi</button>
+      <button id="btnTop" type="button" class="view3d-only">Nhìn từ trên</button>
+      <button id="btnSound" type="button" aria-pressed="true">Âm thanh: bật</button>
+      <button id="btnQuality" type="button" class="view3d-only" aria-pressed="false">Đồ họa: cao</button>
+      <button id="btnFull" type="button">Toàn màn hình</button>
+    </div>
   </div>
 
   <button id="btnMenu" type="button" aria-label="Ẩn hoặc hiện menu" aria-expanded="true">✕</button>
@@ -72,16 +76,29 @@
     <div id="bannerText"></div>
     <div class="row">
       <button id="bannerNew" type="button">Ván mới</button>
-      <button id="bannerLeave" type="button">Thoát</button>
+      <button id="bannerLeave" type="button" class="online-only">Rời phòng</button>
     </div>
   </div>
 
   <div id="toast" role="status" hidden></div>
 
-  <div id="lobby">
+  <div id="gate" hidden>
     <div class="panel">
-      <h1>Cờ tướng 3D</h1>
-      <p class="sub">Chơi với bạn ở xa qua internet, mở link là chơi, không cần cài đặt.</p>
+      <h1>Chơi với bạn ở xa</h1>
+      <p class="sub">Đây là phần chơi riêng cá nhân nội bộ. Vui lòng nhập mã để tiếp tục.</p>
+      <input id="gateInput" type="password" placeholder="Mã truy cập" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div id="gateErr" role="alert"></div>
+      <div class="row">
+        <button id="gateCancel" type="button">Hủy</button>
+        <button id="gateGo" type="button" class="primary">Vào</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="lobby" hidden>
+    <div class="panel">
+      <h1>Chơi với bạn ở xa</h1>
+      <p class="sub">Tạo phòng rồi gửi link cho bạn, hoặc nhập mã phòng bạn gửi.</p>
 
       <fieldset>
         <legend>Bạn cầm quân</legend>
@@ -90,19 +107,15 @@
         <label><input type="radio" name="side" value="any"> Ngẫu nhiên</label>
       </fieldset>
 
-      <label class="pwline">Mật khẩu phòng
-        <input id="pwInput" placeholder="4 đến 32 ký tự" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false">
-      </label>
       <button id="btnCreate" type="button" class="primary">Tạo phòng và mời bạn</button>
 
       <div class="row">
         <input id="codeInput" placeholder="Mã phòng" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button id="btnJoin" type="button">Vào phòng</button>
       </div>
-      <p class="hint">Người tạo phòng đặt mật khẩu, người vào nhập đúng mã phòng và mật khẩu (link mời đã kèm sẵn).</p>
       <div id="lobbyErr" role="alert"></div>
 
-      <button id="btnLocal" type="button" class="link">Chơi hai người trên một máy</button>
+      <button id="btnLobbyClose" type="button" class="link">Quay lại cờ hai người một máy</button>
     </div>
   </div>
 

@@ -24,77 +24,7 @@ export function newRoomData() {
     over: null,
     drawOffer: null,
     rematch: { r: false, b: false },
-    pw: null, // { salt, hash } khi phòng có mật khẩu
-    fails: 0,
-    lockUntil: 0,
   };
-}
-
-// ---------- mật khẩu phòng ----------
-export const PW_MIN = 4;
-export const PW_MAX = 32;
-export const MAX_FAILS = 5;
-export const LOCK_MS = 60 * 1000;
-
-export const isValidPw = (pw) => typeof pw === 'string' && pw.length >= PW_MIN && pw.length <= PW_MAX;
-
-async function sha256Hex(text) {
-  const buf = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function randomHex(n = 16) {
-  const a = new Uint8Array(n);
-  globalThis.crypto.getRandomValues(a);
-  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function sameText(a, b) {
-  if (a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
-}
-
-const roomIsEmpty = (data) => !data.seats.r && !data.seats.b && data.game.history.length === 0;
-
-// Kiểm tra quyền vào phòng trước khi xếp chỗ. Trả về { ok, error?, changed }.
-//   msg: { id, pw?, create? }
-//   Người đã có chỗ (cùng id bí mật) được vào lại không cần mật khẩu.
-//   Sai mật khẩu quá MAX_FAILS lần thì khóa LOCK_MS.
-export async function authorize(data, msg, now = Date.now()) {
-  if (roleOf(data, msg.id) !== 'spectator') return { ok: true, changed: false };
-
-  if (!data.pw) {
-    if (msg.create) {
-      if (!isValidPw(msg.pw)) return { ok: false, error: 'bad_pw_format', changed: false };
-      if (!roomIsEmpty(data)) return { ok: false, error: 'room_taken', changed: false };
-      const salt = randomHex();
-      data.pw = { salt, hash: await sha256Hex(salt + ':' + msg.pw) };
-      data.fails = 0;
-      data.lockUntil = 0;
-      return { ok: true, changed: true };
-    }
-    return { ok: true, changed: false }; // phòng cũ chưa đặt mật khẩu
-  }
-
-  if (data.lockUntil && now < data.lockUntil) return { ok: false, error: 'locked', changed: false };
-  if (typeof msg.pw !== 'string' || msg.pw === '') {
-    return { ok: false, error: 'need_password', changed: false };
-  }
-  const hash = await sha256Hex(data.pw.salt + ':' + msg.pw.slice(0, PW_MAX));
-  if (sameText(hash, data.pw.hash)) {
-    const changed = data.fails !== 0 || data.lockUntil !== 0;
-    data.fails = 0;
-    data.lockUntil = 0;
-    return { ok: true, changed };
-  }
-  data.fails = (data.fails || 0) + 1;
-  if (data.fails >= MAX_FAILS) {
-    data.fails = 0;
-    data.lockUntil = now + LOCK_MS;
-  }
-  return { ok: false, error: 'bad_password', changed: true };
 }
 
 export function roleOf(data, id) {

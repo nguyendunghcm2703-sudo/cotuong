@@ -13,6 +13,6 @@ export const PAL = {
   side: '#5e2f12',
   red: '#d9261c',
   black: '#0a0a0a',
-  trayBase: '#3a2616',
+  trayBase: '#6a4424',
   trayGrain: 'rgba(10,5,2,A)',
 };

@@ -1,22 +1,28 @@
 // Khay quân bị ăn: quân đặt ngoài bàn cờ như ngoài đời. Thuần số học, test được bằng Node.
 //
-// Tọa độ trong hệ của bàn cờ (không xoay). Quân Đỏ bị ăn nằm ở phía người cầm Đen và ngược lại
-// (quân bị ăn đặt bên phía người đã ăn). Với bàn lật, cả bàn và khay xoay cùng nhau.
+// Tọa độ trong hệ của bàn cờ (không xoay). Quân Đỏ bị ăn ('r') nằm phía người cầm Đen (z âm, phía xa),
+// quân Đen bị ăn ('b') nằm phía người cầm Đỏ (z dương, phía gần). Bàn lật thì cả bàn và khay xoay cùng nhau.
+//
+// Hai bố cục:
+//   'tb' (màn dọc):  hai khay nằm phía trên và phía dưới bàn.
+//   'lr' (màn ngang): hai khay xếp chồng trong một cột bên phải bàn; nửa xa là phía Đen, nửa gần là phía Đỏ.
 
 import { BOARD_W, BOARD_D } from './geometry.js';
 
 export const TRAY_SCALE = 0.8;
-const PER_ROW = 8;
 const ROW_GAP = 0.85;
 const COL_GAP = 0.9;
+const TB_PER_ROW = 8;
+const TB_ROWS = 2;
+const LR_PER_ROW = 5; // theo chiều dọc của bàn
+const LR_ROWS = 4;
+const LR_START_Z = 0.8; // khe hở giữa hai khay ở giữa cột
 
-// Màn hình dọc (aspect < 1) đặt khay trên/dưới, màn hình ngang đặt trái/phải.
 export function layoutFor(aspect) {
   return aspect < 1 ? 'tb' : 'lr';
 }
 
-// Từ lịch sử nước đi: quân nào đã bị ăn. history[i] = { from, to, piece, captured } hoặc tương tự.
-// Trả về { r: [...quân Đỏ bị ăn], b: [...quân Đen bị ăn] } theo thứ tự bị ăn.
+// Từ lịch sử nước đi: quân nào đã bị ăn. Trả về { r: [...quân Đỏ bị ăn], b: [...quân Đen bị ăn] }.
 export function capturedFromHistory(history) {
   const out = { r: [], b: [] };
   for (const h of history || []) {
@@ -27,32 +33,63 @@ export function capturedFromHistory(history) {
   return out;
 }
 
-// Vị trí ô thứ index của khay bên side ('r' hoặc 'b' = quân của bên đó bị ăn). Trả về { x, z }.
-// Quân Đỏ bị ăn nằm phía Đen (z âm, xa camera ban đầu), quân Đen bị ăn nằm phía Đỏ (z dương, gần).
-export function traySlot(side, index, layout) {
-  const row = Math.floor(index / PER_ROW);
-  const col = index % PER_ROW;
-  const sign = side === 'r' ? -1 : 1;
-  if (layout === 'lr') {
-    const x = sign * (BOARD_W / 2 + 0.9 + row * ROW_GAP);
-    const z = (col - (PER_ROW - 1) / 2) * COL_GAP * 1.0;
-    return { x, z };
-  }
-  const z = sign * (BOARD_D / 2 + 0.85 + row * ROW_GAP);
-  const x = (col - (PER_ROW - 1) / 2) * COL_GAP;
-  return { x, z };
+export function trayCapacity(layout) {
+  return layout === 'lr' ? LR_PER_ROW * LR_ROWS : TB_PER_ROW * TB_ROWS;
 }
 
-// Hình chữ nhật tấm khay (nền gỗ) cho mỗi bên: { cx, cz, w, d }.
+// Vị trí ô thứ index của khay bên side ('r' = quân Đỏ bị ăn, 'b' = quân Đen bị ăn). Trả về { x, z }.
+export function traySlot(side, index, layout) {
+  const sign = side === 'r' ? -1 : 1;
+  if (layout === 'lr') {
+    const row = Math.floor(index / LR_PER_ROW);
+    const k = index % LR_PER_ROW;
+    return { x: BOARD_W / 2 + 0.9 + row * ROW_GAP, z: sign * (LR_START_Z + k * COL_GAP) };
+  }
+  const row = Math.floor(index / TB_PER_ROW);
+  const col = index % TB_PER_ROW;
+  return {
+    x: (col - (TB_PER_ROW - 1) / 2) * COL_GAP,
+    z: sign * (BOARD_D / 2 + 0.85 + row * ROW_GAP),
+  };
+}
+
+// Tấm khay (nền gỗ) mỗi bên: { cx, cz, w, d }.
 export function trayBase(side, layout) {
   const sign = side === 'r' ? -1 : 1;
-  const rows = 2;
   if (layout === 'lr') {
-    const d = PER_ROW * COL_GAP + 0.4;
-    const w = rows * ROW_GAP + 0.6;
-    return { cx: sign * (BOARD_W / 2 + 0.9 + ((rows - 1) * ROW_GAP) / 2), cz: 0, w, d };
+    const x0 = BOARD_W / 2 + 0.9;
+    return {
+      cx: x0 + ((LR_ROWS - 1) * ROW_GAP) / 2,
+      cz: sign * (LR_START_Z + ((LR_PER_ROW - 1) * COL_GAP) / 2),
+      w: (LR_ROWS - 1) * ROW_GAP + 1.0,
+      d: (LR_PER_ROW - 1) * COL_GAP + 1.0,
+    };
   }
-  const w = PER_ROW * COL_GAP + 0.4;
-  const d = rows * ROW_GAP + 0.6;
-  return { cx: 0, cz: sign * (BOARD_D / 2 + 0.85 + ((rows - 1) * ROW_GAP) / 2), w, d };
+  return {
+    cx: 0,
+    cz: sign * (BOARD_D / 2 + 0.85 + ((TB_ROWS - 1) * ROW_GAP) / 2),
+    w: (TB_PER_ROW - 1) * COL_GAP + 1.0,
+    d: (TB_ROWS - 1) * ROW_GAP + 1.0,
+  };
+}
+
+// Hình chữ nhật nhỏ nhất chứa bàn cờ và cả hai khay: { minX, maxX, minZ, maxZ }.
+export function layoutBox(layout) {
+  let minX = -BOARD_W / 2;
+  let maxX = BOARD_W / 2;
+  let minZ = -BOARD_D / 2;
+  let maxZ = BOARD_D / 2;
+  for (const side of ['r', 'b']) {
+    const b = trayBase(side, layout);
+    minX = Math.min(minX, b.cx - b.w / 2);
+    maxX = Math.max(maxX, b.cx + b.w / 2);
+    minZ = Math.min(minZ, b.cz - b.d / 2);
+    maxZ = Math.max(maxZ, b.cz + b.d / 2);
+  }
+  return { minX, maxX, minZ, maxZ };
+}
+
+export function boxCenter(layout) {
+  const b = layoutBox(layout);
+  return { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 };
 }

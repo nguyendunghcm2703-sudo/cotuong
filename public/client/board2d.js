@@ -2,10 +2,10 @@
 // không tải được Three.js hoặc người chơi chọn chế độ 2D. Chỉ vẽ bằng canvas 2D.
 
 import { rowOf, colOf } from '../shared/xiangqi.js';
-import { BOARD_W, BOARD_D, EXTENT, cellToWorld, worldToCell } from './geometry.js';
+import { BOARD_W, BOARD_D, cellToWorld, worldToCell } from './geometry.js';
 import { paintBoard, paintPiece, paintTable, paintTray, boardSize } from './art.js';
 import { PAL } from './palette.js';
-import { TRAY_SCALE, layoutFor, traySlot, trayBase } from './tray.js';
+import { TRAY_SCALE, layoutFor, traySlot, trayBase, layoutBox, boxCenter } from './tray.js';
 
 const PIECE_R = 0.475;
 const FACE_R = 0.41;
@@ -81,9 +81,9 @@ export function createView(container) {
 
   function layoutNow() {
     layout = layoutFor(W / H);
-    const e = EXTENT[layout];
+    const b = layoutBox(layout);
     const availH = Math.max(80, H - insetTop - insetBottom);
-    scale = Math.max(8, Math.min(W / e.w, availH / e.h));
+    scale = Math.max(8, Math.min((W - 16) / (b.maxX - b.minX), (availH - 16) / (b.maxZ - b.minZ)));
     cy = insetTop + availH / 2;
   }
 
@@ -169,6 +169,8 @@ export function createView(container) {
     ctx.translate(W / 2, cy);
     ctx.scale(scale, scale);
     ctx.rotate(angle);
+    const bc = boxCenter(layout);
+    ctx.translate(-bc.x, -bc.z);
 
     // khay
     for (const side of ['r', 'b']) {
@@ -363,13 +365,17 @@ export function createView(container) {
     const py = (clientY - rect.top - cy) / scale;
     const c = Math.cos(-angle);
     const s = Math.sin(-angle);
-    return worldToCell(px * c - py * s, px * s + py * c);
+    const bc = boxCenter(layout);
+    return worldToCell(px * c - py * s + bc.x, px * s + py * c + bc.z);
   }
 
   // ----- hỗ trợ kiểm thử -----
   canvas.__cellToClient = (row, col) => {
     const rect = canvas.getBoundingClientRect();
-    const { x, z } = cellToWorld(row, col);
+    const w = cellToWorld(row, col);
+    const bc = boxCenter(layout);
+    const x = w.x - bc.x;
+    const z = w.z - bc.z;
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     return {

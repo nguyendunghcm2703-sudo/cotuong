@@ -7,14 +7,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { rowOf, colOf } from '../shared/xiangqi.js';
-import { BOARD_W, BOARD_D, BOARD_H, cellToWorld, worldToCell, fitDistance } from './geometry.js';
+import { BOARD_W, BOARD_D, BOARD_H, cellToWorld, worldToCell } from './geometry.js';
+import { fitView } from './camera-fit.js';
 import { makeBoardTexture, makeTableTexture, makeTrayTexture, pieceTexture, clearPieceTextures } from './textures.js';
 import { PAL } from './palette.js';
-import { TRAY_SCALE, layoutFor, traySlot, trayBase } from './tray.js';
+import { TRAY_SCALE, layoutFor, traySlot, trayBase, boxCenter } from './tray.js';
 
 const SEAT_POLAR = (33 * Math.PI) / 180; // nhìn xiên ~57 độ so với mặt bàn
 const TOP_POLAR = 0.14;
-const TARGET = new THREE.Vector3(0, 0, 0.3);
+const TARGET = new THREE.Vector3(0, 0, 0);
 const PIECE_H = 0.34;
 const PIECE_R = 0.475;
 const FACE_R = 0.41;
@@ -185,54 +186,99 @@ export function createView(container) {
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   controls.target.copy(TARGET);
 
-  function dist() {
-    // khung hình hiệu dụng: phần không bị thanh nút che
-    const w = Math.max(1, container.clientWidth);
-    const availH = Math.max(80, Math.max(1, container.clientHeight) - insetTop - insetBottom);
-    return fitDistance(w / availH, camera.fov, layout);
+  // Camera được mô tả bằng (góc đứng polar, góc ngang azim, tỉ lệ zoom so với khoảng cách vừa khít).
+  // Khi bố cục đổi (ẩn/hiện menu, xoay màn hình) chỉ tính lại khoảng cách và độ dời, giữ nguyên góc và zoom.
+  let cam = { polar: SEAT_POLAR, azim: 0, ratio: 1 };
+
+  function viewSize() {
+    return { w: Math.max(1, container.clientWidth), h: Math.max(1, container.clientHeight) };
   }
 
-  function cameraPosition(polar, scale = 1) {
-    const d = dist() * scale;
-    return new THREE.Vector3(TARGET.x, TARGET.y + d * Math.cos(polar), TARGET.z + d * Math.sin(polar));
+  function fitAt(polar, azim) {
+    const { w, h } = viewSize();
+    return fitView({ layout, w, h, top: insetTop, bottom: insetBottom, fov: camera.fov, polar, azim });
   }
 
-  function moveCamera(pos, animate) {
+  // Đặt camera theo trạng thái cam: vị trí, độ dời hình, giới hạn zoom.
+  function placeCamera(st) {
+    const { w, h } = viewSize();
+    const f = fitAt(st.polar, st.azim);
+    const d = f.distance * st.ratio;
+    camera.position.set(
+      TARGET.x + d * Math.sin(st.polar) * Math.sin(st.azim),
+      TARGET.y + d * Math.cos(st.polar),
+      TARGET.z + d * Math.sin(st.polar) * Math.cos(st.azim)
+    );
+    camera.setViewOffset(w, h, -f.ox, -f.oy, w, h);
     controls.target.copy(TARGET);
+    controls.minDistance = f.distance * 0.45;
+    controls.maxDistance = f.distance * 1.6;
+    cam = { ...st };
+  }
+
+  // Đọc lại góc và zoom hiện tại từ camera (người chơi có thể đã xoay hoặc zoom).
+  function readCamera() {
+    const dx = camera.position.x - TARGET.x;
+    const dy = camera.position.y - TARGET.y;
+    const dz = camera.position.z - TARGET.z;
+    const r = Math.hypot(dx, dy, dz);
+    if (r < 1e-3) return cam;
+    const polar = Math.acos(Math.max(-1, Math.min(1, dy / r)));
+    const azim = Math.atan2(dx, dz);
+    const f = fitAt(polar, azim);
+    return { polar, azim, ratio: r / f.distance };
+  }
+
+  function goTo(st, animate) {
     if (!animate) {
-      camera.position.copy(pos);
+      placeCamera(st);
       return;
     }
-    const from = camera.position.clone();
-    tween(550, (p) => camera.position.lerpVectors(from, pos, ease(p)));
+    const from = readCamera();
+    // đi theo đường ngắn nhất về góc ngang
+    let da = st.azim - from.azim;
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    tween(550, (p) => {
+      const e = ease(p);
+      placeCamera({
+        polar: from.polar + (st.polar - from.polar) * e,
+        azim: from.azim + da * e,
+        ratio: from.ratio + (st.ratio - from.ratio) * e,
+      });
+    });
   }
 
   function resetCamera(animate = true) {
-    moveCamera(cameraPosition(SEAT_POLAR), animate);
+    goTo({ polar: SEAT_POLAR, azim: 0, ratio: 1 }, animate);
   }
 
   function topView() {
-    moveCamera(cameraPosition(TOP_POLAR, 0.92), true);
+    goTo({ polar: TOP_POLAR, azim: 0, ratio: 1 }, true);
   }
 
+  // Tâm khối bàn + khay được dời về gốc, kể cả khi bàn đang xoay (lật bàn).
+  function centerAssembly() {
+    const c = boxCenter(layout);
+    const th = boardGroup.rotation.y;
+    boardGroup.position.x = -(c.x * Math.cos(th) + c.z * Math.sin(th));
+    boardGroup.position.z = -(-c.x * Math.sin(th) + c.z * Math.cos(th));
+  }
+
+  let firstLayout = true;
   function resize() {
-    const w = Math.max(1, container.clientWidth);
-    const h = Math.max(1, container.clientHeight);
+    const { w, h } = viewSize();
+    const keep = firstLayout ? { polar: SEAT_POLAR, azim: 0, ratio: 1 } : readCamera();
+    firstLayout = false;
     renderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    const dy = (insetTop - insetBottom) / 2; // dời hình xuống để bàn nằm giữa vùng trống
-    if (dy) camera.setViewOffset(w, h, 0, -dy, w, h);
-    else camera.clearViewOffset();
     const next = layoutFor(w / Math.max(80, h - insetTop - insetBottom));
     if (next !== layout) {
       layout = next;
       buildTrays(lastTray);
     }
-    const d = dist();
-    controls.minDistance = d * 0.45;
-    controls.maxDistance = d * 1.6;
-    resetCamera(false);
+    centerAssembly();
+    placeCamera(keep);
   }
 
   // ---------- chất lượng ----------
@@ -429,6 +475,7 @@ export function createView(container) {
     }
     checkMat.opacity = 0.55 + 0.35 * Math.sin(now / 180);
     // Giữ chữ trên mặt quân luôn xuôi với camera, kể cả khi bàn đang lật.
+    centerAssembly();
     const r = -boardGroup.rotation.y;
     for (const p of pieceGroup.children) p.children[1].rotation.y = r;
     for (const p of trayGroup.children) if (p.children.length === 2) p.children[1].rotation.y = r;

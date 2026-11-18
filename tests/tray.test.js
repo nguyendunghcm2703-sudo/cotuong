@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { traySlot, trayBase, capturedFromHistory, layoutFor } from '../public/client/tray.js';
+import { traySlot, trayBase, capturedFromHistory, layoutFor, layoutBox, trayCapacity } from '../public/client/tray.js';
 import { BOARD_W, BOARD_D, fitDistance } from '../public/client/geometry.js';
 import { createGame, applyMove, legalMoves } from '../public/shared/xiangqi.js';
 
@@ -24,23 +24,46 @@ test('Khay nằm ngoài tấm bàn cờ, không ô nào trùng nhau', () => {
   }
 });
 
-test('Quân Đỏ bị ăn nằm phía Đen (z âm), quân Đen bị ăn nằm phía Đỏ (z dương)', () => {
-  assert.ok(traySlot('r', 0, 'tb').z < 0);
-  assert.ok(traySlot('b', 0, 'tb').z > 0);
-  assert.ok(traySlot('r', 0, 'lr').x < 0);
-  assert.ok(traySlot('b', 0, 'lr').x > 0);
-});
-
-test('Khay nằm trong vùng camera nhìn thấy', () => {
-  for (const side of ['r', 'b']) {
-    for (let i = 0; i < 16; i++) {
-      const tb = traySlot(side, i, 'tb');
-      assert.ok(Math.abs(tb.z) <= 7.5 && Math.abs(tb.x) <= 4.95);
-      const lr = traySlot(side, i, 'lr');
-      assert.ok(Math.abs(lr.x) <= 7 && Math.abs(lr.z) <= 5.3);
+test('Quân Đỏ bị ăn nằm phía Đen (z âm), quân Đen bị ăn nằm phía Đỏ (z dương), ở cả hai bố cục', () => {
+  for (const layout of ['tb', 'lr']) {
+    for (let i = 0; i < trayCapacity(layout); i++) {
+      assert.ok(traySlot('r', i, layout).z < 0, `r ${layout} ${i}`);
+      assert.ok(traySlot('b', i, layout).z > 0, `b ${layout} ${i}`);
     }
   }
-  assert.ok(trayBase('r', 'tb').w > 0);
+});
+
+test('Bố cục ngang: hai khay cùng một cột bên phải bàn và không chồng lên nhau', () => {
+  const r = trayBase('r', 'lr');
+  const b = trayBase('b', 'lr');
+  assert.ok(r.cx - r.w / 2 > BOARD_W / 2 && b.cx - b.w / 2 > BOARD_W / 2);
+  assert.ok(r.cz + r.d / 2 <= 0 && b.cz - b.d / 2 >= 0, 'hai khay chia hai nửa phía Đen và phía Đỏ');
+});
+
+test('Khay chứa đủ 16 quân mỗi bên và quân nằm trong tấm khay', () => {
+  for (const layout of ['tb', 'lr']) {
+    assert.ok(trayCapacity(layout) >= 16);
+    for (const side of ['r', 'b']) {
+      const base = trayBase(side, layout);
+      for (let i = 0; i < 16; i++) {
+        const s = traySlot(side, i, layout);
+        assert.ok(Math.abs(s.x - base.cx) <= base.w / 2 && Math.abs(s.z - base.cz) <= base.d / 2, `${layout}${side}${i}`);
+      }
+    }
+  }
+});
+
+test('layoutBox chứa cả bàn lẫn hai khay', () => {
+  for (const layout of ['tb', 'lr']) {
+    const box = layoutBox(layout);
+    assert.ok(box.minX <= -BOARD_W / 2 && box.maxX >= BOARD_W / 2 && box.minZ <= -BOARD_D / 2 && box.maxZ >= BOARD_D / 2);
+    for (const side of ['r', 'b']) {
+      for (let i = 0; i < 16; i++) {
+        const s = traySlot(side, i, layout);
+        assert.ok(s.x >= box.minX && s.x <= box.maxX && s.z >= box.minZ && s.z <= box.maxZ);
+      }
+    }
+  }
 });
 
 test('capturedFromHistory gom quân bị ăn theo bên', () => {
