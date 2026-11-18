@@ -41,6 +41,7 @@
     <button id="btnNew" type="button" class="local-only">Ván mới</button>
     <button id="btnUndo" type="button" class="local-only">Đi lại</button>
     <button id="btnFlip" type="button" class="local-only">Lật bàn</button>
+    <button id="btnAI" type="button" class="local-only">Chơi với máy</button>
     <button id="btnRemote" type="button" class="local-only">Chơi với bạn ở xa</button>
 
     <button id="btnInvite" type="button" class="online-only">Mời bạn</button>
@@ -80,6 +81,12 @@
     </div>
   </div>
 
+  <div id="fsHelp" class="card" hidden>
+    <div id="fsHelpTitle">Bật toàn màn hình</div>
+    <div id="fsHelpBody"></div>
+    <button id="fsHelpOk" type="button" class="primary">Đã hiểu</button>
+  </div>
+
   <div id="toast" role="status" hidden></div>
 
   <div id="gate" hidden>
@@ -92,6 +99,30 @@
         <button id="gateCancel" type="button">Hủy</button>
         <button id="gateGo" type="button" class="primary">Vào</button>
       </div>
+    </div>
+  </div>
+
+  <div id="aiSetup" hidden>
+    <div class="panel">
+      <h1>Chơi với máy</h1>
+      <p class="sub">Chơi một mình, không cần mạng và không cần mã.</p>
+
+      <fieldset>
+        <legend>Cấp độ</legend>
+        <label><input type="radio" name="aiLevel" value="de"> Dễ — máy hay đi sai</label>
+        <label><input type="radio" name="aiLevel" value="vua" checked> Vừa — đủ để luyện tập</label>
+        <label><input type="radio" name="aiLevel" value="kho"> Khó — máy tính kỹ, nghĩ lâu hơn</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Bạn cầm quân</legend>
+        <label><input type="radio" name="aiSide" value="r" checked> Đỏ (đi trước)</label>
+        <label><input type="radio" name="aiSide" value="b"> Đen</label>
+        <label><input type="radio" name="aiSide" value="any"> Ngẫu nhiên</label>
+      </fieldset>
+
+      <button id="btnAiStart" type="button" class="primary">Bắt đầu</button>
+      <button id="btnAiClose" type="button" class="link">Cờ hai người một máy</button>
     </div>
   </div>
 

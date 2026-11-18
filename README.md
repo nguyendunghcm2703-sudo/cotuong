@@ -23,9 +23,13 @@ Không cần tạo Durable Object hay cấu hình thêm gì ở dashboard: file 
 
 Mở trang là vào ngay bàn cờ **hai người trên một máy** (Ván mới, Đi lại, Lật bàn, Tự lật).
 
+**Chơi với máy:** bấm **Chơi với máy**, chọn cấp độ **Dễ / Vừa / Khó** và bên cầm quân. Không cần mạng, không cần mã.
+Máy chạy trong Web Worker (`public/client/ai-worker.js`, thuật toán ở `public/shared/engine.js`). Nút **Đi lại** lùi cả nước của bạn và nước máy đáp lại.
+Luật chiếu liên tục: bên chiếu liên tục bị xử thua (áp dụng cả khi chơi hai người và qua mạng).
+
 **Chơi với bạn ở xa:**
-1. Bấm **Chơi với bạn ở xa**. Lần đầu sẽ hiện thông báo đây là phần chơi riêng cá nhân nội bộ và yêu cầu nhập **mã truy cập**
-   (mã bạn đặt trong Cloudflare, xem bên dưới). Nhập đúng thì máy được nhớ 30 ngày.
+1. Bấm **Chơi với bạn ở xa**. Mỗi lần vào (bằng nút hoặc bằng link mời) đều hiện thông báo đây là phần chơi riêng cá nhân nội bộ và yêu cầu nhập **mã truy cập**
+   (mã bạn đặt trong Cloudflare, xem bên dưới). Rời phòng thì phiên truy cập bị xóa; tối đa 12 giờ.
 2. Chọn bên (Đỏ, Đen hoặc ngẫu nhiên), bấm **Tạo phòng và mời bạn**, rồi bấm **Mời bạn** để gửi link.
    Hãy gửi riêng mã truy cập cho bạn bè (một lần là đủ).
 3. Bạn mở link, nhập mã truy cập rồi vào thẳng phòng và nhận bên còn lại. Người thứ ba vào sẽ là khán giả.

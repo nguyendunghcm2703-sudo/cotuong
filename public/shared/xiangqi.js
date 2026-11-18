@@ -8,7 +8,7 @@
 //
 // Phạm vi bản đầu: luật cơ bản + hai tướng không đối mặt + chiếu bí/hết nước.
 // Hòa khi một thế lặp lại lần thứ 3 hoặc 60 nước (120 ply) không ăn quân.
-// Chưa có luật chiếu liên tục / đuổi liên tục (làm ở bản sau).
+// Có luật chiếu liên tục (bên chiếu liên tục thua). Chưa có luật đuổi liên tục.
 
 export const ROWS = 10;
 export const COLS = 9;
@@ -317,14 +317,45 @@ export function applyMove(state, move) {
         piece,
         captured: captured === '.' ? null : captured,
         iccs: toICCS(move),
+        gaveCheck: isInCheck({ board, turn }, turn),
+        key,
       },
     ],
     posCounts: { ...state.posCounts, [key]: (state.posCounts[key] || 0) + 1 },
   };
 }
 
+// Chiếu liên tục: trong chu kỳ lặp, bên nào nước nào cũng chiếu thì bên đó thua
+// (nếu cả hai cùng chiếu liên tục thì hòa). Trả về 'r' | 'b' | null.
+function perpetualCheckLoser(state) {
+  const h = state.history;
+  if (!h.length) return null;
+  const cur = positionKey(state.board, state.turn);
+  let prev = -1;
+  for (let i = h.length - 2; i >= 0; i--) {
+    if (h[i].key === cur) {
+      prev = i;
+      break;
+    }
+  }
+  if (prev < 0) return null;
+  const cycle = h.slice(prev + 1); // các nước của một chu kỳ
+  const bad = { r: true, b: true };
+  let seen = { r: false, b: false };
+  for (const e of cycle) {
+    const side = sideOf(e.piece);
+    seen[side] = true;
+    if (!e.gaveCheck) bad[side] = false;
+  }
+  const rBad = seen.r && bad.r;
+  const bBad = seen.b && bad.b;
+  if (rBad && !bBad) return 'r';
+  if (bBad && !rBad) return 'b';
+  return null;
+}
+
 // { over: false } hoặc { over: true, winner: 'r' | 'b' | null, reason }
-// reason: 'checkmate' | 'stalemate' | 'repetition' | 'no-capture'
+// reason: 'checkmate' | 'stalemate' | 'repetition' | 'perpetual-check' | 'no-capture'
 // Trong cờ tướng, bên hết nước đi (kể cả không bị chiếu) là bên thua.
 export function getResult(state) {
   if (legalMoves(state).length === 0) {
@@ -335,6 +366,8 @@ export function getResult(state) {
     };
   }
   if ((state.posCounts[positionKey(state.board, state.turn)] || 0) >= REPETITION_LIMIT) {
+    const loser = perpetualCheckLoser(state);
+    if (loser) return { over: true, winner: opponent(loser), reason: 'perpetual-check' };
     return { over: true, winner: null, reason: 'repetition' };
   }
   if (state.halfmoveClock >= NO_CAPTURE_LIMIT) {

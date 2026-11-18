@@ -6,6 +6,7 @@ import { createBestView } from './views.js';
 import { capturedFromHistory } from './tray.js';
 import { playClack, unlockAudio, setSoundEnabled } from './sound.js';
 import { connect } from './net.js';
+import { think as aiThink, cancel as aiCancel } from './ai.js';
 
 const $ = (id) => document.getElementById(id);
 let view = null; // 3D hoặc 2D, tạo ở phần khởi động
@@ -13,6 +14,8 @@ const BASE_TITLE = 'Cờ tướng 3D';
 
 // ---------- trạng thái chung ----------
 let mode = 'local'; // 'local' | 'online'
+let ai = null; // chơi với máy: { level, human } hoặc null
+let thinking = false;
 let states = [createGame()];
 let selected = null;
 let targetSet = new Set();
@@ -298,6 +301,7 @@ function reasonText(res) {
     case 'stalemate': return 'hết nước đi';
     case 'resign': return `${sideName(opp(res.winner))} xin thua`;
     case 'repetition': return 'lặp thế 3 lần';
+    case 'perpetual-check': return 'chiếu liên tục (bên chiếu bị xử thua)';
     case 'no-capture': return '60 nước không ăn quân';
     case 'draw-agreed': return 'hai bên đồng ý hòa';
     default: return '';
@@ -309,7 +313,9 @@ function resultText(res) {
   const who =
     mode === 'online' && isSeated()
       ? res.winner === mySide ? 'Bạn thắng' : 'Bạn thua'
-      : `${sideName(res.winner)} thắng`;
+      : ai
+        ? res.winner === ai.human ? 'Bạn thắng' : 'Máy thắng'
+        : `${sideName(res.winner)} thắng`;
   return `${who} — ${reasonText(res)}`;
 }
 
@@ -335,11 +341,12 @@ function refresh() {
   let turnText;
   if (res) turnText = 'Ván kết thúc';
   else if (waiting) turnText = 'Đang chờ đối thủ…';
-  else turnText = `Lượt: ${sideName(s.turn)}` + (seated && s.turn === mySide ? ' (bạn)' : '');
+  else turnText = `Lượt: ${sideName(s.turn)}` + ((seated && s.turn === mySide) || (ai && s.turn === ai.human) ? ' (bạn)' : '');
   $('turnText').textContent = turnText;
 
   let msg = '';
   if (online && connStatus !== 'open') msg = 'Mất kết nối, đang nối lại…';
+  else if (thinking) msg = 'Máy đang nghĩ…';
   else if (!res && checked && !waiting) msg = 'Chiếu!';
   else if (seated && bothSeated && !res && !peers[opp(mySide)]) msg = 'Đối thủ mất kết nối';
   $('msg').textContent = msg;
@@ -350,7 +357,7 @@ function refresh() {
   view.setLastMove(last ? last.from : null, last ? last.to : null);
   view.setCheck(checked ? s.board.indexOf(s.turn === 'r' ? 'K' : 'k') : null);
 
-  $('btnUndo').disabled = states.length < 2 || busy;
+  $('btnUndo').disabled = states.length < 2 || busy || thinking;
   const canAct = seated && bothSeated && !res;
   $('btnDraw').disabled = !canAct || drawOffer === mySide;
   $('btnDraw').textContent = seated && drawOffer === mySide ? 'Đã xin hòa…' : 'Xin hòa';
@@ -409,6 +416,8 @@ function selectPiece(idx) {
 // Đưa mọi thứ về trạng thái ban đầu (dùng khi bắt đầu ván hoặc rời phòng).
 function resetCommon() {
   epoch += 1;
+  thinking = false;
+  aiCancel();
   clearTimeout(pendingTimer);
   states = [createGame()];
   queue = [];
@@ -457,7 +466,8 @@ function doMove(from, to) {
     syncView(next);
     busy = false;
     refresh();
-    if (autoFlip) setFlip(next.turn === 'b');
+    if (ai) maybeAiMove();
+    else if (autoFlip) setFlip(next.turn === 'b');
   });
 }
 
@@ -465,6 +475,7 @@ function onTap(clientX, clientY) {
   unlockAudio();
   if (overlayOpen() || busy || pending || currentResult()) return;
   const s = cur();
+  if (ai && (thinking || s.turn !== ai.human)) return;
   if (mode === 'online' && !(isSeated() && seats.r && seats.b && s.turn === mySide)) {
     deselect();
     return;
@@ -647,6 +658,7 @@ function onNetMessage(m) {
 
 // ---------- bắt đầu / rời ván ----------
 function startLocal() {
+  ai = null;
   leaveRoom(false);
   setMode('local');
   resetCommon();
@@ -654,6 +666,7 @@ function startLocal() {
 }
 
 function startOnline(code, want) {
+  ai = null;
   leaveRoom(false);
   resetCommon();
   setMode('online');
@@ -681,6 +694,7 @@ function leaveRoom(toLocal = true) {
   roomCode = null;
   connStatus = 'closed';
   if (toLocal) {
+    forgetAccess();
     setUrlRoom(null);
     startLocal();
     document.title = BASE_TITLE;
@@ -712,16 +726,62 @@ function newGame() {
   if (busy) return;
   if (states.length > 1 && !currentResult() && !window.confirm('Bắt đầu ván mới?')) return;
   resetCommon();
+  if (ai) setFlip(ai.human === 'b', false);
   refresh();
+  if (ai) maybeAiMove();
 }
 
 function undo() {
-  if (busy || states.length < 2) return;
-  states.pop();
+  if (busy || thinking || states.length < 2) return;
+  if (ai) {
+    // lùi về lượt của người: bỏ nước của mình và nước máy đáp lại
+    states.pop();
+    while (states.length > 1 && cur().turn !== ai.human) states.pop();
+  } else {
+    states.pop();
+  }
   deselect();
   syncView(cur());
   refresh();
-  if (autoFlip) setFlip(cur().turn === 'b');
+  if (ai) maybeAiMove();
+  else if (autoFlip) setFlip(cur().turn === 'b');
+}
+
+// ---------- chơi với máy ----------
+function startAi(level, humanChoice) {
+  const human = humanChoice === 'any' ? (Math.random() < 0.5 ? 'r' : 'b') : humanChoice;
+  leaveRoom(false);
+  setMode('local');
+  resetCommon();
+  ai = { level, human };
+  setFlip(human === 'b', false);
+  refresh();
+  maybeAiMove();
+}
+
+function maybeAiMove() {
+  if (!ai || mode !== 'local' || thinking) return;
+  const s = cur();
+  if (currentResult() || s.turn === ai.human) return;
+  const my = epoch;
+  thinking = true;
+  refresh();
+  const t0 = Date.now();
+  aiThink(s, ai.level)
+    .then(async (mv) => {
+      const wait = Math.max(0, 350 - (Date.now() - t0));
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      if (my !== epoch || !thinking) return;
+      thinking = false;
+      if (!mv) return refresh();
+      doMove(mv.from, mv.to);
+    })
+    .catch(() => {
+      if (my !== epoch) return;
+      thinking = false;
+      toast('Máy gặp lỗi, hãy bấm Ván mới');
+      refresh();
+    });
 }
 
 function renderToggles() {
@@ -780,21 +840,40 @@ function applyUi() {
 const fsRoot = document.documentElement;
 const fsSupported = !!(fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen);
 const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Đã mở từ biểu tượng ngoài màn hình chính: đang toàn màn hình sẵn, không cần nút.
+const isStandalone =
+  window.navigator.standalone === true || window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
+if (isStandalone) document.body.classList.add('standalone');
 
 function updateFullBtn() {
   $('btnFull').textContent = isFull() ? 'Thoát toàn màn hình' : 'Toàn màn hình';
 }
 
+function showFsHelp() {
+  $('fsHelpBody').innerHTML = isIOS
+    ? 'iPhone không cho trang web tự bật toàn màn hình, nhưng bạn vẫn có thể dùng như ứng dụng toàn màn hình:' +
+      '<ol><li>Mở trang này bằng <b>Safari</b>.</li><li>Bấm nút <b>Chia sẻ</b> (hình vuông có mũi tên lên).</li>' +
+      '<li>Chọn <b>Thêm vào MH chính</b>, rồi <b>Thêm</b>.</li><li>Mở game từ biểu tượng mới trên màn hình chính.</li></ol>'
+    : 'Trình duyệt này không bật được toàn màn hình. Hãy mở trang bằng <b>Chrome</b> (không mở trong ứng dụng Zalo, Facebook...), ' +
+      'hoặc cài lên màn hình chính: menu ⋮ → <b>Cài đặt ứng dụng</b>.';
+  $('fsHelp').hidden = false;
+}
+$('fsHelpOk').addEventListener('click', () => {
+  $('fsHelp').hidden = true;
+});
+
 async function toggleFull() {
   if (!fsSupported) {
-    toast('Trình duyệt này không hỗ trợ toàn màn hình. Trên iPhone: bấm Chia sẻ rồi chọn "Thêm vào MH chính".', 5500);
+    showFsHelp();
     return;
   }
   try {
     if (isFull()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else await (fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen).call(fsRoot);
+    else if (fsRoot.requestFullscreen) await fsRoot.requestFullscreen({ navigationUI: 'hide' });
+    else await fsRoot.webkitRequestFullscreen();
   } catch (e) {
-    toast('Không bật được toàn màn hình');
+    showFsHelp();
   }
 }
 
@@ -814,6 +893,24 @@ document.addEventListener('fullscreenchange', updateFullBtn);
 document.addEventListener('webkitfullscreenchange', updateFullBtn);
 
 // ---------- nút: chung ----------
+$('btnAI').addEventListener('click', () => {
+  unlockAudio();
+  $('aiSetup').hidden = false;
+});
+$('btnAiClose').addEventListener('click', () => {
+  $('aiSetup').hidden = true;
+  if (ai) {
+    if (states.length > 1 && !currentResult() && !window.confirm('Bỏ ván với máy và chuyển sang cờ hai người một máy?')) return;
+    startLocal();
+  }
+});
+$('btnAiStart').addEventListener('click', () => {
+  const level = document.querySelector('input[name="aiLevel"]:checked').value;
+  const side = document.querySelector('input[name="aiSide"]:checked').value;
+  if (!ai && states.length > 1 && !currentResult() && !window.confirm('Bắt đầu ván với máy sẽ bỏ ván đang chơi. Tiếp tục?')) return;
+  $('aiSetup').hidden = true;
+  startAi(level, side);
+});
 $('btnRemote').addEventListener('click', () => {
   unlockAudio();
   if (states.length > 1 && !currentResult() && !window.confirm('Vào phòng chơi từ xa sẽ bỏ ván một máy đang chơi. Tiếp tục?')) return;
@@ -849,7 +946,7 @@ $('btnQuality').addEventListener('click', () => {
 
 // ---------- chơi từ xa: nhập mã truy cập rồi tới sảnh ----------
 function overlayOpen() {
-  return !$('gate').hidden || !$('lobby').hidden;
+  return !$('gate').hidden || !$('lobby').hidden || !$('aiSetup').hidden;
 }
 
 function lobbyError(text) {
@@ -888,6 +985,7 @@ function afterAccess() {
   }
 }
 
+// Mỗi lần vào phần chơi từ xa (qua nút hoặc qua link mời) đều phải nhập mã, kể cả khi trước đó đã nhập đúng.
 // joinCode: mã phòng từ link mời (nếu có); nhập mã xong sẽ vào thẳng phòng đó.
 async function openRemote(joinCode) {
   pendingJoin = joinCode;
@@ -904,8 +1002,12 @@ async function openRemote(joinCode) {
     pendingJoin = null;
     return;
   }
-  if (st.ok) afterAccess();
-  else showGate();
+  await forgetAccess(); // xóa quyền cũ để buộc nhập lại
+  showGate();
+}
+
+function forgetAccess() {
+  return fetch('/api/logout', { method: 'POST', cache: 'no-store' }).catch(() => {});
 }
 
 async function submitGate() {

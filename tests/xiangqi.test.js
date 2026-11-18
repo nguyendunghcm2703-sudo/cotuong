@@ -151,3 +151,19 @@ test('Hòa khi lặp thế lần thứ 3', () => {
   for (const m of cycle) g = applyMove(g, fromICCS(m));
   assert.deepEqual(getResult(g), { over: true, winner: null, reason: 'repetition' });
 });
+
+import { createGame as cg2, applyMove as am2, getResult as gr2 } from '../public/shared/xiangqi.js';
+test('chiếu liên tục: bên chiếu thua, không phải hòa', () => {
+  let st = cg2('3k5/9/9/9/9/R8/9/9/9/5K3 w');
+  const seq = [[3, 12], [0, 9], [12, 3], [9, 0]];
+  st = am2(st, { from: 45, to: 0 });
+  let res = { over: false };
+  for (let i = 0; i < 40 && !res.over; i++) {
+    const [from, to] = seq[i % 4];
+    st = am2(st, { from, to });
+    res = gr2(st);
+  }
+  assert.equal(res.over, true);
+  assert.equal(res.reason, 'perpetual-check');
+  assert.equal(res.winner, 'b');
+});

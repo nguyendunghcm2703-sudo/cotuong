@@ -60,6 +60,18 @@ await build({
   logLevel: 'info',
 });
 
+// 3b. Máy đánh cờ chạy trong Web Worker: gộp riêng thành client/ai-worker.js.
+await build({
+  entryPoints: [path.join(SRC, 'client/ai-worker.js')],
+  outdir: path.join(OUT, 'client'),
+  bundle: true,
+  format: 'esm',
+  target: 'es2020',
+  minify: true,
+  legalComments: 'none',
+  logLevel: 'info',
+});
+
 // 4. Làm rối ở mức vừa.
 if (noObf) {
   console.log('Bỏ qua bước làm rối (--no-obfuscate).');

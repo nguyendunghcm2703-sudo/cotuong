@@ -1,13 +1,13 @@
 // Mã truy cập chung cho phần chơi từ xa. Thuần JS (Web Crypto), test được bằng Node.
 //
-//   POST /api/login   { code }  -> đúng: đặt cookie đã ký (HttpOnly, 30 ngày); sai: 401; khóa: 429
+//   POST /api/login   { code }  -> đúng: đặt cookie đã ký (HttpOnly, 12 giờ); sai: 401; khóa: 429
 //   GET  /api/session           -> { ok, configured }
 //   POST /api/logout            -> xóa cookie
 // Mã nằm trong secret SITE_PASSWORD của Cloudflare. Cookie ký bằng HMAC dẫn xuất từ mã đó,
 // nên đổi mã là mọi cookie cũ mất hiệu lực.
 
 export const COOKIE = 'ct_access';
-export const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const TTL_MS = 12 * 60 * 60 * 1000; // chỉ đủ cho một lần chơi; client luôn hỏi lại mã mỗi lần vào
 export const MAX_FAILS = 5;
 export const LOCK_MS = 5 * 60 * 1000;
 const MAX_CODE = 128;
