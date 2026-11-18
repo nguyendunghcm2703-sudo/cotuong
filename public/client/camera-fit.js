@@ -1,19 +1,23 @@
 // Tính khoảng cách và độ dời của camera để toàn bộ bàn cờ và khay lọt vào vùng còn trống của màn hình,
 // có tính phối cảnh (mép gần rộng hơn mép xa). Thuần số học, test được bằng Node.
 //
-// Hệ tọa độ: tâm bàn cờ (đã dời về gốc) ở (0,0,0), camera nhìn vào target từ góc (polar, azimuth).
+// Hệ tọa độ: tâm bàn cờ ở (0,0,0), camera nhìn vào target từ góc (polar, azimuth).
 // polar: góc từ phương thẳng đứng; azimuth: góc quanh trục đứng (0 = nhìn từ phía Đỏ).
 
-import { layoutBox, boxCenter } from './tray.js';
+import { layoutBox } from './tray.js';
 
-// 8 điểm góc của khối chứa bàn + khay + quân, tọa độ so với tâm khối.
-export function boxPoints(layout, height = 0.6) {
+// 8 điểm góc của khối chứa bàn + khay + quân. Gốc là TÂM BÀN CỜ (camera luôn nhìn vào đây để
+// trục giữa bàn thẳng đứng), rot là góc lật bàn quanh trục đứng (0 hoặc PI).
+export function boxPoints(layout, height = 0.6, rot = 0) {
   const b = layoutBox(layout);
-  const c = boxCenter(layout);
-  const xs = [b.minX - c.x, b.maxX - c.x];
-  const zs = [b.minZ - c.z, b.maxZ - c.z];
+  const cs = Math.cos(rot);
+  const sn = Math.sin(rot);
   const pts = [];
-  for (const x of xs) for (const z of zs) for (const y of [-0.5, height]) pts.push({ x, y, z });
+  for (const x of [b.minX, b.maxX]) {
+    for (const z of [b.minZ, b.maxZ]) {
+      for (const y of [-0.5, height]) pts.push({ x: x * cs + z * sn, y, z: -x * sn + z * cs });
+    }
+  }
   return pts;
 }
 
@@ -63,8 +67,8 @@ export function projectBox(points, { distance, polar, azim = 0, fov = 40, w, h, 
 
 // Trả về { distance, ox, oy }: khoảng cách camera để vừa khít vùng trống, và độ dời ảnh (pixel)
 // để đặt giữa vùng trống (dùng cho camera.setViewOffset(w, h, -ox, -oy, w, h)).
-export function fitView({ layout, w, h, top = 0, bottom = 0, fov = 40, polar, azim = 0, pad = 8 }) {
-  const pts = boxPoints(layout);
+export function fitView({ layout, w, h, top = 0, bottom = 0, fov = 40, polar, azim = 0, pad = 8, rot = 0 }) {
+  const pts = boxPoints(layout, 0.6, rot);
   const freeW = Math.max(60, w - 2 * pad);
   const freeH = Math.max(60, h - top - bottom - 2 * pad);
   const opts = { polar, azim, fov, w, h };

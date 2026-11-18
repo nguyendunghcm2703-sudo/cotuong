@@ -11,7 +11,7 @@ import { BOARD_W, BOARD_D, BOARD_H, cellToWorld, worldToCell } from './geometry.
 import { fitView } from './camera-fit.js';
 import { makeBoardTexture, makeTableTexture, makeTrayTexture, pieceTexture, clearPieceTextures } from './textures.js';
 import { PAL } from './palette.js';
-import { TRAY_SCALE, layoutFor, traySlot, trayBase, boxCenter } from './tray.js';
+import { TRAY_SCALE, layoutFor, traySlot, trayBase } from './tray.js';
 
 const SEAT_POLAR = (33 * Math.PI) / 180; // nhìn xiên ~57 độ so với mặt bàn
 const TOP_POLAR = 0.14;
@@ -194,9 +194,11 @@ export function createView(container) {
     return { w: Math.max(1, container.clientWidth), h: Math.max(1, container.clientHeight) };
   }
 
+  let fitRot = 0; // góc lật bàn dùng để tính khung hình (đích của lần lật)
+
   function fitAt(polar, azim) {
     const { w, h } = viewSize();
-    return fitView({ layout, w, h, top: insetTop, bottom: insetBottom, fov: camera.fov, polar, azim });
+    return fitView({ layout, w, h, top: insetTop, bottom: insetBottom, fov: camera.fov, polar, azim, rot: fitRot });
   }
 
   // Đặt camera theo trạng thái cam: vị trí, độ dời hình, giới hạn zoom.
@@ -256,12 +258,10 @@ export function createView(container) {
     goTo({ polar: TOP_POLAR, azim: 0, ratio: 1 }, true);
   }
 
-  // Tâm khối bàn + khay được dời về gốc, kể cả khi bàn đang xoay (lật bàn).
+  // Tâm BÀN CỜ luôn ở gốc và camera nhìn thẳng vào đó, nên trục giữa bàn thẳng đứng;
+  // phần khay được đưa vào khung hình bằng độ dời ống kính (setViewOffset) chứ không bằng cách quay camera.
   function centerAssembly() {
-    const c = boxCenter(layout);
-    const th = boardGroup.rotation.y;
-    boardGroup.position.x = -(c.x * Math.cos(th) + c.z * Math.sin(th));
-    boardGroup.position.z = -(-c.x * Math.sin(th) + c.z * Math.cos(th));
+    boardGroup.position.set(0, 0, 0);
   }
 
   let firstLayout = true;
@@ -409,6 +409,11 @@ export function createView(container) {
 
   function setFlipped(flag, animate = true) {
     const target = flag ? Math.PI : 0;
+    if (target !== fitRot) {
+      const keep = readCamera();
+      fitRot = target;
+      placeCamera(keep);
+    }
     if (!animate) {
       boardGroup.rotation.y = target;
       return;

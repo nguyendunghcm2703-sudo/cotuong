@@ -46,3 +46,18 @@ test('Đổi góc ngang (azimuth) vẫn vừa khít', () => {
     assert.ok(bb.maxX - bb.minX <= w && bb.maxY - bb.minY <= h);
   }
 });
+
+test('lật bàn: khối vẫn vừa khung và camera nhìn vào tâm bàn', () => {
+  for (const layout of ['lr', 'tb']) {
+    for (const rot of [0, Math.PI]) {
+      const w = layout === 'lr' ? 1600 : 390;
+      const h = layout === 'lr' ? 900 : 800;
+      const f = fitView({ layout, w, h, top: 30, bottom: 50, polar: 1.2, rot });
+      const bb = projectBox(boxPoints(layout, 0.6, rot), { distance: f.distance, polar: 1.2, w, h });
+      assert.ok(bb.maxX - bb.minX <= w + 1e-6 && bb.maxY - bb.minY <= h - 80 + 1e-6);
+      // tâm bàn (gốc) nằm ở giữa màn hình trước khi dời ống kính
+      const c = projectBox([{ x: 0, y: 0, z: 0 }], { distance: f.distance, polar: 1.2, w, h });
+      assert.ok(Math.abs(c.minX - w / 2) < 1e-6);
+    }
+  }
+});
